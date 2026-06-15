@@ -159,6 +159,9 @@ export default class AudioInboxPlugin extends Plugin {
 		// Command — process inbox files
 		this.addCommand({ id: "process-inbox", name: "处理录音文件夹", callback: () => this.processInbox() });
 
+		// Command — mark exported todos as done
+		this.addCommand({ id: "clear-exported-todos", name: "标记已同步的待办为完成", callback: () => this.markTodosDone() });
+
 		// Settings
 		this.addSettingTab(new AudioInboxSettingTab(this.app, this));
 
@@ -559,6 +562,7 @@ export default class AudioInboxPlugin extends Plugin {
 		}
 
 		// Also save clean file for iOS Shortcut: no prefix, one task per line
+		// Each new recording OVERWRITES the file (not append) to prevent duplicates
 		const cp = normalizePath(`${dir}/待办-clean.txt`);
 		const clean: string[] = [];
 		for (const t of todos) {
@@ -566,12 +570,11 @@ export default class AudioInboxPlugin extends Plugin {
 			if (s && s !== "无") clean.push(s);
 		}
 		if (clean.length > 0) {
-			// Save to vault
-			const cf = this.app.vault.getAbstractFileByPath(cp);
+			// Overwrite vault file (not append) — prevents duplicate reminders
 			const cleanContent = clean.join("\n");
+			const cf = this.app.vault.getAbstractFileByPath(cp);
 			if (cf instanceof TFile) {
-				const old = await this.app.vault.read(cf);
-				await this.app.vault.modify(cf, old + "\n" + cleanContent);
+				await this.app.vault.modify(cf, cleanContent);
 			} else {
 				await this.app.vault.create(cp, cleanContent);
 			}
@@ -624,6 +627,57 @@ export default class AudioInboxPlugin extends Plugin {
 		} catch (e) {
 			console.warn('AudioInbox: Could not sync to Shortcuts folder:', e);
 		}
+	}
+
+	/** Mark all `- [ ]` in 待办事项.md as `- [x]` and clear 待办-clean.txt */
+	private async markTodosDone() {
+		const dir = normalizePath(this.settings.outputFolder);
+		const todoPath = normalizePath(`${dir}/待办事项.md`);
+		const cleanPath = normalizePath(`${dir}/待办-clean.txt`);
+
+		// 1. Replace all unchecked todos with checked in 待办事项.md
+		const todoFile = this.app.vault.getAbstractFileByPath(todoPath);
+		if (todoFile instanceof TFile) {
+			const content = await this.app.vault.read(todoFile);
+			const updated = content.replace(/^- \[ \] /gm, "- [x] ");
+			if (updated !== content) {
+				await this.app.vault.modify(todoFile, updated);
+			}
+		}
+
+		// 2. Clear 待办-clean.txt
+		const cleanFile = this.app.vault.getAbstractFileByPath(cleanPath);
+		if (cleanFile instanceof TFile) {
+			await this.app.vault.modify(cleanFile, "");
+		}
+
+		// 3. Also clear Shortcuts iCloud folder file
+		try {
+			const fs = (window as any).require?.('fs') || require('fs');
+			const path = (window as any).require?.('path') || require('path');
+			const os = (window as any).require?.('os') || require('os');
+			let iCloudBase = '';
+			const homeDir = os.homedir();
+			if (process.platform === 'win32') {
+				const candidates = [
+					path.join(homeDir, 'iCloudDrive'),
+					'F:\\iCloudDrive', 'D:\\iCloudDrive', 'E:\\iCloudDrive',
+				];
+				for (const c of candidates) {
+					if (fs.existsSync(c)) { iCloudBase = c; break; }
+				}
+			} else {
+				iCloudBase = path.join(homeDir, 'Library', 'Mobile Documents');
+			}
+			if (iCloudBase) {
+				const shortcutsFile = path.join(iCloudBase, 'iCloud~is~workflow~my~workflows', '待办-clean.txt');
+				if (fs.existsSync(shortcutsFile)) fs.writeFileSync(shortcutsFile, '', 'utf-8');
+			}
+		} catch (e) {
+			console.warn('AudioInbox: Could not clear Shortcuts folder file:', e);
+		}
+
+		new Notice("✅ 已同步的待办已标记为完成，待办文件已清空");
 	}
 
 	onunload() {
