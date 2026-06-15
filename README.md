@@ -40,14 +40,14 @@ You need **two API keys** (both are domestic China services, no VPN needed):
 
 #### Option A: Manual Install (Recommended for now)
 
-1. Download the latest release from [GitHub Releases](https://github.com/Andsea/obsidian-audio-inbox/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/andsea007/obsidian-audio-inbox/releases)
 2. Extract into your vault: `<vault>/.obsidian/plugins/audio-inbox/`
 3. Restart Obsidian → Settings → Community Plugins → Enable "Audio Inbox"
 
 #### Option B: BRAT Plugin
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
-2. BRAT Settings → Add Beta Plugin → `Andsea/obsidian-audio-inbox`
+2. BRAT Settings → Add Beta Plugin → `andsea007/obsidian-audio-inbox`
 
 ### Configuration
 
@@ -123,7 +123,7 @@ Audio Inbox automatically exports a clean todo file (`待办-clean.txt`) that yo
 
 ```bash
 # Clone
-git clone https://github.com/Andsea/obsidian-audio-inbox.git
+git clone https://github.com/andsea007/obsidian-audio-inbox.git
 cd obsidian-audio-inbox
 
 # Install dependencies
@@ -153,5 +153,5 @@ Issues and Pull Requests are welcome!
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/Andsea">Andsea</a>
+  Made with ❤️ by <a href="https://github.com/andsea007">Andsea</a>
 </p>
