@@ -1,0 +1,157 @@
+# 🎤 Audio Inbox — Obsidian Voice Note Plugin
+
+> **One-click voice recording → Speech-to-Text → AI summarization**
+> Desktop & Mobile, minimal setup, Chinese-first.
+
+[![Obsidian Downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&query=%24%5B%22audio-inbox%22%5D.downloads&url=https://raw.githubusercontent.com/obsidianmd/obsidian-releases/community-plugins-stats.json&label=downloads)](https://obsidian.md/plugins?id=audio-inbox)
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---|---|
+| 🎙️ **One-click Recording** | Click the mic icon → speak → stop → done. No extra steps. |
+| 🧠 **Smart Transcription** | Powered by SiliconFlow SenseVoiceSmall (free tier, works in China without VPN) |
+| 🤖 **AI Summarization** | DeepSeek automatically generates structured notes with summary & to-do list |
+| 📱 **Mobile Support** | Draggable floating action button on iOS/Android, fully functional |
+| ✅ **Todo Extraction** | Auto-extracts `- [ ]` items from AI summary into a dedicated todo file |
+| 🍎 **Apple Reminders Sync** | Exports clean todo list for iOS Shortcuts integration |
+| 📂 **Batch Processing** | Process pre-recorded audio files in your inbox folder |
+| 🌐 **China-Friendly** | No Google APIs, no VPN required. SiliconFlow + DeepSeek, both domestic services |
+
+## 📸 Screenshots
+
+<!-- Add your screenshots here -->
+| Desktop Recording | Mobile FAB | Generated Note |
+|---|---|---|
+| ![Desktop](screenshots/desktop.png) | ![Mobile](screenshots/mobile.png) | ![Note](screenshots/note.png) |
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+You need **two API keys** (both are domestic China services, no VPN needed):
+
+1. **SiliconFlow API Key** (for Speech-to-Text) — Free tier available, [sign up here](https://cloud.siliconflow.cn/)
+2. **DeepSeek API Key** (for AI Summarization) — Very affordable, [sign up here](https://platform.deepseek.com/)
+
+### Installation
+
+#### Option A: Manual Install (Recommended for now)
+
+1. Download the latest release from [GitHub Releases](https://github.com/Andsea/obsidian-audio-inbox/releases)
+2. Extract into your vault: `<vault>/.obsidian/plugins/audio-inbox/`
+3. Restart Obsidian → Settings → Community Plugins → Enable "Audio Inbox"
+
+#### Option B: BRAT Plugin
+
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
+2. BRAT Settings → Add Beta Plugin → `Andsea/obsidian-audio-inbox`
+
+### Configuration
+
+1. Open Obsidian Settings → Audio Inbox
+2. Paste your **SiliconFlow API Key** in the STT section
+3. Paste your **DeepSeek API Key** in the AI section
+4. You're ready to go! 🎉
+
+## 📖 Usage
+
+### Recording a Voice Note
+
+- **Desktop**: Click the 🎤 mic icon in the left ribbon
+- **Mobile**: Tap the floating 🎤 button (drag it to reposition)
+- **Command Palette**: `Ctrl/Cmd + P` → "开始语音笔记（录音）"
+
+### Workflow
+
+```
+🎤 Click Record → 🗣️ Speak → ⏹ Stop → 🎧 STT → 🤖 AI Summarize → 📝 Note Saved
+```
+
+The generated note includes:
+
+```markdown
+# 🎤 语音笔记 — 2026-06-15 21:30
+
+---
+
+## 📋 总结
+- Key points from your voice...
+
+## ✅ 待办事项
+- [ ] Task 1
+- [ ] Task 2
+
+---
+*Audio Inbox 生成*
+```
+
+### Processing Pre-recorded Audio
+
+If you have audio files (`.m4a`, `.mp3`, `.wav`, `.ogg`, `.webm`) in your inbox folder:
+
+1. `Ctrl/Cmd + P` → "处理录音文件夹"
+2. The plugin will batch-process all audio files
+
+### iOS Shortcuts Integration
+
+Audio Inbox automatically exports a clean todo file (`待办-clean.txt`) that you can read with iOS Shortcuts:
+
+1. Create a Shortcut: **File → Get Text → Split by Newline → Repeat → Add Reminder**
+2. Point the File action to `Shortcuts/待办-clean.txt` in iCloud Drive
+3. Run the shortcut to sync todos to Apple Reminders
+
+## ⚙️ Settings
+
+| Setting | Default | Description |
+|---|---|---|
+| STT API Key | — | SiliconFlow API Key |
+| STT API URL | `https://api.siliconflow.cn/v1/audio/transcriptions` | STT endpoint |
+| STT Model | `FunAudioLLM/SenseVoiceSmall` | Speech recognition model |
+| Language | `zh` | Language code (zh/en/ja/ko) |
+| DeepSeek API Key | — | DeepSeek API Key |
+| API URL | `https://api.deepseek.com/v1/chat/completions` | AI endpoint |
+| Model | `deepseek-chat` | AI model |
+| Summary Prompt | *(built-in)* | Customizable AI prompt |
+| Recording Folder | `录音` | Where audio files are saved |
+| Output Folder | `VoiceNotes` | Where notes are saved |
+| Show Transcript | `false` | Include raw transcript in note |
+
+## 🔧 Development
+
+```bash
+# Clone
+git clone https://github.com/Andsea/obsidian-audio-inbox.git
+cd obsidian-audio-inbox
+
+# Install dependencies
+npm install
+
+# Dev mode (watch)
+npm run dev
+
+# Production build
+npm run build
+```
+
+## 🤝 Contributing
+
+Issues and Pull Requests are welcome!
+
+1. Fork the repo
+2. Create your feature branch: `git checkout -b feature/my-feature`
+3. Commit: `git commit -m 'Add my feature'`
+4. Push: `git push origin feature/my-feature`
+5. Open a Pull Request
+
+## 📄 License
+
+[MIT](LICENSE)
+
+---
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/Andsea">Andsea</a>
+</p>

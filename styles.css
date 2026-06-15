@@ -1,0 +1,90 @@
+/* Audio Inbox — Recording Modal */
+
+.audio-inbox-modal {
+	text-align: center;
+	padding: 8px;
+}
+.audio-inbox-modal h2 {
+	margin-bottom: 20px;
+}
+
+.ai-modal-status {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	margin-bottom: 24px;
+}
+.ai-dot {
+	width: 14px; height: 14px;
+	border-radius: 50%;
+	background: #ef4444;
+	animation: ai-blink 1s infinite;
+}
+@keyframes ai-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.ai-modal-timer {
+	font-family: monospace;
+	font-size: 2em;
+	font-weight: 700;
+}
+
+.ai-modal-label {
+	font-size: 0.95em;
+	color: var(--text-muted);
+}
+
+.ai-modal-btns {
+	margin-top: 8px;
+}
+.ai-modal-stop {
+	width: 100%;
+	padding: 14px;
+	border: none;
+	border-radius: 12px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 1.1em;
+	font-weight: 600;
+	cursor: pointer;
+}
+.ai-modal-stop:active { filter: brightness(0.9); }
+
+/* Settings */
+.audio-inbox-guide {
+	background: var(--background-secondary);
+	border-radius: 10px;
+	padding: 12px 16px;
+	margin-bottom: 16px;
+	line-height: 1.7;
+}
+
+/* ---- FAB — mobile only, draggable ---- */
+.ai-fab {
+	position: fixed;
+	bottom: 28px;
+	right: 20px;
+	z-index: 999;
+	width: 60px;
+	height: 60px;
+	border-radius: 50%;
+	background: var(--interactive-accent);
+	box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: grab;
+	transition: box-shadow 0.2s;
+	-webkit-tap-highlight-color: transparent;
+	touch-action: none;
+}
+.ai-fab:active {
+	box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+	cursor: grabbing;
+}
+.ai-fab-icon {
+	font-size: 28px;
+	line-height: 1;
+	user-select: none;
+	pointer-events: none;
+}

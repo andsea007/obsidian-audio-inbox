@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-audio-inbox",
+  "version": "2.0.0",
+  "description": "One-click voice recording → Speech-to-Text → AI summarization for Obsidian (desktop & mobile)",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.js",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.js production"
+  },
+  "keywords": ["obsidian", "plugin", "voice", "recording", "transcription", "stt", "ai", "deepseek", "siliconflow"],
+  "author": "Andsea",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.17.0",
+    "obsidian": "latest",
+    "tslib": "^2.6.0",
+    "typescript": "^5.0.0"
+  }
+}
