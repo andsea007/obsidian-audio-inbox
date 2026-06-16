@@ -97,11 +97,21 @@ If you have audio files (`.m4a`, `.mp3`, `.wav`, `.ogg`, `.webm`) in your inbox 
 
 ### iOS Shortcuts Integration
 
-Audio Inbox automatically exports a clean todo file (`待办-clean.txt`) that you can read with iOS Shortcuts:
+#### Desktop (automatic)
+Audio Inbox writes `待办-clean.txt` to the Shortcuts iCloud folder automatically.
 
-1. Create a Shortcut: **File → Get Text → Split by Newline → Repeat → Add Reminder**
-2. Point the File action to `Shortcuts/待办-clean.txt` in iCloud Drive
-3. Run the shortcut to sync todos to Apple Reminders
+#### Mobile (clipboard-based)
+On mobile, todos are copied to your clipboard. Create this Shortcut:
+
+| Step | Action | Setting |
+|---|---|---|
+| 1 | **Get Clipboard** | — |
+| 2 | **Split Text** | By New Lines |
+| 3 | **Repeat with Each** | — |
+| ↳ | **Add New Reminder** | Title = Repeat Item |
+| 4 | **Show Notification** | "✅ Synced" |
+
+After each voice recording, tap the Shortcut to send todos to Apple Reminders.
 
 ## ⚙️ Settings
 
