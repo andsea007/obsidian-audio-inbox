@@ -541,6 +541,8 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private async saveTodos(todos: string[]) {
+		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
+
 		const dir = normalizePath(this.settings.outputFolder);
 		if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.createFolder(dir);
 
@@ -569,64 +571,89 @@ export default class AudioInboxPlugin extends Plugin {
 			const s = t.replace(/^- \[ \] /, "").trim();
 			if (s && s !== "无") clean.push(s);
 		}
+		console.log(`AudioInbox: clean todos (${clean.length}):`, clean);
+
 		if (clean.length > 0) {
 			// Overwrite vault file (not append) — prevents duplicate reminders
 			const cleanContent = clean.join("\n");
 			const cf = this.app.vault.getAbstractFileByPath(cp);
 			if (cf instanceof TFile) {
 				await this.app.vault.modify(cf, cleanContent);
+				console.log(`AudioInbox: Updated vault ${cp} (${cleanContent.length} chars)`);
 			} else {
 				await this.app.vault.create(cp, cleanContent);
+				console.log(`AudioInbox: Created vault ${cp} (${cleanContent.length} chars)`);
 			}
 
-			// Also save to Shortcuts iCloud folder (for iOS Shortcut automation)
+			// Also save to Shortcuts iCloud folder (desktop) or clipboard (mobile)
 			this.saveToShortcutsFolder(cleanContent);
+		} else {
+			console.log('AudioInbox: No clean todos to save (all empty or "无")');
 		}
 	}
 
-	/** Save clean todos to the Shortcuts iCloud container so the shortcut can read them */
+	/** Check if the app is running on mobile (Capacitor/Cordova, no Node.js fs) */
+	private isMobile(): boolean {
+		return /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent) || !!(window as any).capacitor;
+	}
+
+	/** Save clean todos to the Shortcuts iCloud container so the shortcut can read them.
+	 *  Desktop: Node.js fs → Shortcuts folder.
+	 *  Mobile: clipboard fallback (Node.js fs not available on mobile). */
 	private saveToShortcutsFolder(content: string) {
-		try {
-			// Use Node.js built-in modules (available in Obsidian Electron)
-			const fs = (window as any).require?.('fs') || require('fs');
-			const path = (window as any).require?.('path') || require('path');
-			const os = (window as any).require?.('os') || require('os');
+		// === Desktop: write to Shortcuts iCloud folder ===
+		if (!this.isMobile()) {
+			try {
+				// Use Node.js built-in modules (available in Obsidian Electron only)
+				const fs = (window as any).require?.('fs') || require('fs');
+				const path = (window as any).require?.('path') || require('path');
+				const os = (window as any).require?.('os') || require('os');
 
-			// Find iCloud Drive location
-			let iCloudBase = '';
-			const homeDir = os.homedir();
+				let iCloudBase = '';
+				const homeDir = os.homedir();
 
-			if (process.platform === 'win32') {
-				// Common iCloud Drive locations on Windows
-				const candidates = [
-					path.join(homeDir, 'iCloudDrive'),
-					'F:\\iCloudDrive', 'D:\\iCloudDrive', 'E:\\iCloudDrive',
-				];
-				for (const c of candidates) {
-					if (fs.existsSync(c)) { iCloudBase = c; break; }
+				if (process.platform === 'win32') {
+					const candidates = [
+						path.join(homeDir, 'iCloudDrive'),
+						'F:\\iCloudDrive', 'D:\\iCloudDrive', 'E:\\iCloudDrive',
+					];
+					for (const c of candidates) {
+						if (fs.existsSync(c)) { iCloudBase = c; break; }
+					}
+				} else {
+					iCloudBase = path.join(homeDir, 'Library', 'Mobile Documents');
 				}
-			} else {
-				// macOS
-				iCloudBase = path.join(homeDir, 'Library', 'Mobile Documents');
-			}
 
-			if (!iCloudBase || !fs.existsSync(iCloudBase)) {
-				console.log('AudioInbox: iCloud Drive not found, skip Shortcuts sync');
-				return;
-			}
+				if (!iCloudBase || !fs.existsSync(iCloudBase)) {
+					console.log('AudioInbox: iCloud Drive not found, skip Shortcuts sync');
+					return;
+				}
 
-			const shortcutsDir = path.join(iCloudBase, 'iCloud~is~workflow~my~workflows');
-			if (!fs.existsSync(shortcutsDir)) {
-				fs.mkdirSync(shortcutsDir, { recursive: true });
-			}
+				const shortcutsDir = path.join(iCloudBase, 'iCloud~is~workflow~my~workflows');
+				if (!fs.existsSync(shortcutsDir)) {
+					fs.mkdirSync(shortcutsDir, { recursive: true });
+				}
 
-			const filePath = path.join(shortcutsDir, '待办-clean.txt');
-			// Overwrite (not append) — each voice note's new todos replace the file
-			fs.writeFileSync(filePath, content, 'utf-8');
-			console.log('AudioInbox: Synced to Shortcuts folder:', filePath);
-		} catch (e) {
-			console.warn('AudioInbox: Could not sync to Shortcuts folder:', e);
+				const filePath = path.join(shortcutsDir, '待办-clean.txt');
+				fs.writeFileSync(filePath, content, 'utf-8');
+				console.log('AudioInbox: Synced to Shortcuts folder:', filePath);
+			} catch (e) {
+				console.warn('AudioInbox: Desktop Shortcuts sync failed:', e);
+			}
+			return;
 		}
+
+		// === Mobile: clipboard fallback ===
+		// Node.js fs is NOT available on mobile (Capacitor/Cordova).
+		// Copy clean todos to clipboard so the iOS Shortcut can read from it.
+		navigator.clipboard.writeText(content).then(() => {
+			console.log('AudioInbox: Copied todos to clipboard (mobile)');
+			new Notice(`✅ 待办已同步\n📋 已复制到剪贴板\n💡 运行「待办同步」快捷指令即可导入提醒事项`);
+		}).catch((e: any) => {
+			console.warn('AudioInbox: Clipboard write failed on mobile:', e);
+			// Last resort: show the todos in a notice
+			new Notice(`⚠️ 剪贴板写入失败，但待办已保存到\nVoiceNotes/待办-clean.txt`, 6000);
+		});
 	}
 
 	/** Mark all `- [ ]` in 待办事项.md as `- [x]` and clear 待办-clean.txt */

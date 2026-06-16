@@ -2,6 +2,19 @@
 
 All notable changes to Audio Inbox will be documented in this file.
 
+## [2.0.1] - 2026-06-16
+
+### 🐛 Bug Fixes
+
+- **Mobile `待办-clean.txt` not updating** — `saveToShortcutsFolder()` used Node.js `fs` which is unavailable on mobile (Capacitor/Cordova). Now detects platform: desktop writes to Shortcuts iCloud folder, mobile copies to clipboard with notice.
+- Added console logging in `saveTodos()` for easier debugging
+
+### 🔧 Improvements
+
+- Platform detection: `isMobile()` helper checks both user agent and Capacitor presence
+- Mobile clipboard fallback: todos copied to clipboard → Shortcut reads from clipboard instead of file
+- Better error messaging: mobile users get clear instructions to run the Shortcut
+
 ## [2.0.0] - 2026-06-15
 
 ### 🎉 Initial Public Release
