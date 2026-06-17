@@ -82,6 +82,10 @@
 	box-shadow: 0 6px 20px rgba(0,0,0,0.4);
 	cursor: grabbing;
 }
+.ai-fab-dragged {
+	right: auto;
+	bottom: auto;
+}
 .ai-fab-icon {
 	font-size: 28px;
 	line-height: 1;
