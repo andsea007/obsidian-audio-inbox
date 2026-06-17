@@ -597,62 +597,16 @@ export default class AudioInboxPlugin extends Plugin {
 		return /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent) || !!(window as any).capacitor;
 	}
 
-	/** Save clean todos to the Shortcuts iCloud container so the shortcut can read them.
-	 *  Desktop: Node.js fs → Shortcuts folder.
-	 *  Mobile: clipboard fallback (Node.js fs not available on mobile). */
+	/** Save clean todos to clipboard for iOS Shortcuts sync.
+	 *  Both desktop and mobile: use clipboard API (safe, no Node.js fs needed).
+	 *  The vault file (待办-clean.txt) is already saved by saveTodos(). */
 	private saveToShortcutsFolder(content: string) {
-		// === Desktop: write to Shortcuts iCloud folder ===
-		if (!this.isMobile()) {
-			try {
-				// Use Node.js built-in modules (available in Obsidian Electron only)
-				const fs = (window as any).require?.('fs') || require('fs');
-				const path = (window as any).require?.('path') || require('path');
-				const os = (window as any).require?.('os') || require('os');
-
-				let iCloudBase = '';
-				const homeDir = os.homedir();
-
-				if (process.platform === 'win32') {
-					const candidates = [
-						path.join(homeDir, 'iCloudDrive'),
-						'F:\\iCloudDrive', 'D:\\iCloudDrive', 'E:\\iCloudDrive',
-					];
-					for (const c of candidates) {
-						if (fs.existsSync(c)) { iCloudBase = c; break; }
-					}
-				} else {
-					iCloudBase = path.join(homeDir, 'Library', 'Mobile Documents');
-				}
-
-				if (!iCloudBase || !fs.existsSync(iCloudBase)) {
-					console.log('AudioInbox: iCloud Drive not found, skip Shortcuts sync');
-					return;
-				}
-
-				const shortcutsDir = path.join(iCloudBase, 'iCloud~is~workflow~my~workflows');
-				if (!fs.existsSync(shortcutsDir)) {
-					fs.mkdirSync(shortcutsDir, { recursive: true });
-				}
-
-				const filePath = path.join(shortcutsDir, '待办-clean.txt');
-				fs.writeFileSync(filePath, content, 'utf-8');
-				console.log('AudioInbox: Synced to Shortcuts folder:', filePath);
-			} catch (e) {
-				console.warn('AudioInbox: Desktop Shortcuts sync failed:', e);
-			}
-			return;
-		}
-
-		// === Mobile: clipboard fallback ===
-		// Node.js fs is NOT available on mobile (Capacitor/Cordova).
-		// Copy clean todos to clipboard so the iOS Shortcut can read from it.
 		navigator.clipboard.writeText(content).then(() => {
-			console.log('AudioInbox: Copied todos to clipboard (mobile)');
-			new Notice(`✅ 待办已同步\n📋 已复制到剪贴板\n💡 运行「待办同步」快捷指令即可导入提醒事项`);
+			console.log('AudioInbox: Copied todos to clipboard');
+			new Notice(`✅ 待办已同步\n📋 已复制到剪贴板`);
 		}).catch((e: any) => {
-			console.warn('AudioInbox: Clipboard write failed on mobile:', e);
-			// Last resort: show the todos in a notice
-			new Notice(`⚠️ 剪贴板写入失败，但待办已保存到\nVoiceNotes/待办-clean.txt`, 6000);
+			console.warn('AudioInbox: Clipboard write failed:', e);
+			new Notice(`⚠️ 剪贴板写入失败，但待办已保存到\n${this.settings.outputFolder}/待办-clean.txt`, 6000);
 		});
 	}
 
@@ -676,32 +630,6 @@ export default class AudioInboxPlugin extends Plugin {
 		const cleanFile = this.app.vault.getAbstractFileByPath(cleanPath);
 		if (cleanFile instanceof TFile) {
 			await this.app.vault.modify(cleanFile, "");
-		}
-
-		// 3. Also clear Shortcuts iCloud folder file
-		try {
-			const fs = (window as any).require?.('fs') || require('fs');
-			const path = (window as any).require?.('path') || require('path');
-			const os = (window as any).require?.('os') || require('os');
-			let iCloudBase = '';
-			const homeDir = os.homedir();
-			if (process.platform === 'win32') {
-				const candidates = [
-					path.join(homeDir, 'iCloudDrive'),
-					'F:\\iCloudDrive', 'D:\\iCloudDrive', 'E:\\iCloudDrive',
-				];
-				for (const c of candidates) {
-					if (fs.existsSync(c)) { iCloudBase = c; break; }
-				}
-			} else {
-				iCloudBase = path.join(homeDir, 'Library', 'Mobile Documents');
-			}
-			if (iCloudBase) {
-				const shortcutsFile = path.join(iCloudBase, 'iCloud~is~workflow~my~workflows', '待办-clean.txt');
-				if (fs.existsSync(shortcutsFile)) fs.writeFileSync(shortcutsFile, '', 'utf-8');
-			}
-		} catch (e) {
-			console.warn('AudioInbox: Could not clear Shortcuts folder file:', e);
 		}
 
 		new Notice("✅ 已同步的待办已标记为完成，待办文件已清空");
