@@ -2,6 +2,15 @@
 
 All notable changes to Audio Inbox will be documented in this file.
 
+## [2.0.5] - 2026-06-17
+
+### 🛡️ Final Review Compliance
+
+- **Static styles**: Use CSS class `.ai-fab-dragged` instead of `setProperty()` for `right`/`bottom` reset
+- **minAppVersion**: Bump to 1.4.0 to cover `vault.createFolder()` and all other APIs in use
+- **Settings heading**: Remove plugin name from settings heading (Obsidian already shows it)
+- **globalThis**: Replace `typeof globalThis` with safer type cast for popout compatibility
+
 ## [2.0.4] - 2026-06-17
 
 ### 🛡️ Obsidian Community Review Compliance
