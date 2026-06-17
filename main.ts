@@ -1,4 +1,4 @@
-import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal } from "obsidian";
+import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal, Platform } from "obsidian";
 
 // ==================== TYPES ====================
 
@@ -51,7 +51,7 @@ class RecordModal extends Modal {
 	private mediaRecorder: MediaRecorder | null = null;
 	private audioChunks: Blob[] = [];
 	private startTime = 0;
-	private timerId: ReturnType<typeof setInterval> | null = null;
+	private timerId: number | null = null;
 	private isFinished = false;
 	private mimeType = "";
 	private timerEl!: HTMLElement;
@@ -70,7 +70,7 @@ class RecordModal extends Modal {
 
 		// Timer + status
 		const statusRow = contentEl.createDiv({ cls: "ai-modal-status" });
-		const dot = statusRow.createSpan({ cls: "ai-dot" });
+		statusRow.createSpan({ cls: "ai-dot" });
 		this.timerEl = statusRow.createSpan({ cls: "ai-modal-timer", text: "00:00" });
 		statusRow.createSpan({ text: " 录音中，请说话...", cls: "ai-modal-label" });
 
@@ -83,7 +83,7 @@ class RecordModal extends Modal {
 			this.stream = await navigator.mediaDevices.getUserMedia({
 				audio: { echoCancellation: true, noiseSuppression: true },
 			});
-		} catch (e) {
+		} catch {
 			contentEl.empty();
 			contentEl.createEl("h3", { text: "❌ 无法访问麦克风" });
 			contentEl.createEl("p", { text: "请在系统设置中允许 Obsidian 使用麦克风权限，然后重试。" });
@@ -97,14 +97,14 @@ class RecordModal extends Modal {
 		this.mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
 			? "audio/webm;codecs=opus" : "audio/webm";
 		this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: this.mimeType, audioBitsPerSecond: 64000 });
-		this.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
+		this.mediaRecorder.ondataavailable = (e: BlobEvent) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
 		this.mediaRecorder.onstop = () => { this.finish(); };
 		this.audioChunks = [];
 		this.mediaRecorder.start(250);
 
 		// Timer
 		this.startTime = Date.now();
-		this.timerId = setInterval(() => {
+		this.timerId = window.setInterval(() => {
 			const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
 			const m = Math.floor(elapsed / 60).toString().padStart(2, "0");
 			const s = (elapsed % 60).toString().padStart(2, "0");
@@ -115,7 +115,7 @@ class RecordModal extends Modal {
 	}
 
 	private doStop() {
-		if (this.timerId) clearInterval(this.timerId);
+		if (this.timerId) window.clearInterval(this.timerId);
 		if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
 			this.mediaRecorder.stop();
 		} else {
@@ -127,7 +127,7 @@ class RecordModal extends Modal {
 		if (this.isFinished) return;
 		this.isFinished = true;
 		if (this.stream) this.stream.getTracks().forEach(t => t.stop());
-		if (this.timerId) clearInterval(this.timerId);
+		if (this.timerId) window.clearInterval(this.timerId);
 		const blob = this.audioChunks.length > 0
 			? new Blob(this.audioChunks, { type: this.mimeType || "audio/webm" })
 			: null;
@@ -170,10 +170,9 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private addFab() {
-		const isMobile = /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent);
-		if (!isMobile) return;
+		if (!Platform.isMobileApp) return;
 
-		const fab = document.body.createDiv({ cls: "ai-fab" });
+		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
 		fab.createSpan({ text: "🎤", cls: "ai-fab-icon" });
 		this.fabEl = fab;
 
@@ -183,16 +182,16 @@ export default class AudioInboxPlugin extends Plugin {
 
 		// Only attach move/end to document DURING a drag
 		const addListeners = () => {
-			document.addEventListener("touchmove", onMove, { passive: false });
-			document.addEventListener("touchend", onEnd);
-			document.addEventListener("mousemove", onMove);
-			document.addEventListener("mouseup", onEnd);
+			activeDocument.addEventListener("touchmove", onMove, { passive: false });
+			activeDocument.addEventListener("touchend", onEnd);
+			activeDocument.addEventListener("mousemove", onMove);
+			activeDocument.addEventListener("mouseup", onEnd);
 		};
 		const removeListeners = () => {
-			document.removeEventListener("touchmove", onMove);
-			document.removeEventListener("touchend", onEnd);
-			document.removeEventListener("mousemove", onMove);
-			document.removeEventListener("mouseup", onEnd);
+			activeDocument.removeEventListener("touchmove", onMove);
+			activeDocument.removeEventListener("touchend", onEnd);
+			activeDocument.removeEventListener("mousemove", onMove);
+			activeDocument.removeEventListener("mouseup", onEnd);
 		};
 
 		const onStart = (e: TouchEvent | MouseEvent) => {
@@ -211,15 +210,15 @@ export default class AudioInboxPlugin extends Plugin {
 			if (!moved) return;
 			e.preventDefault();
 			dragging = true;
-			fab.style.left = (sl + dx) + "px";
-			fab.style.top = (st + dy) + "px";
-			fab.style.right = "auto";
-			fab.style.bottom = "auto";
+			fab.style.setProperty("left", `${sl + dx}px`);
+			fab.style.setProperty("top", `${st + dy}px`);
+			fab.style.setProperty("right", "auto");
+			fab.style.setProperty("bottom", "auto");
 		};
 
 		const onEnd = () => {
 			removeListeners();
-			setTimeout(() => { dragging = false; moved = false; }, 50);
+			window.setTimeout(() => { dragging = false; moved = false; }, 50);
 		};
 
 		fab.addEventListener("touchstart", onStart, { passive: false });
@@ -228,19 +227,19 @@ export default class AudioInboxPlugin extends Plugin {
 		fab.addEventListener("click", () => {
 			if (dragging || moved) return;
 			if (this.isBusy) { new Notice("⏳ 正在处理中..."); return; }
-			this.startRecordFlow();
+			void this.startRecordFlow();
 		});
 
 		// Re-inject if Obsidian mobile re-renders
 		this.registerInterval(window.setInterval(() => {
-			if (!document.body.contains(fab)) {
-				document.body.appendChild(fab);
+			if (!activeDocument.body.contains(fab)) {
+				activeDocument.body.appendChild(fab);
 			}
 		}, 3000));
 	}
 
 	async loadSettings() {
-		const saved = await this.loadData();
+		const saved = await this.loadData() as Partial<AudioInboxSettings> | null;
 		this.settings = Object.assign({}, DEFAULTS, saved || {});
 		// Auto-migrate: if old prompt detected, replace with new one
 		if (this.settings.summaryPrompt && this.settings.summaryPrompt.includes("5. 使用中文输出") && !this.settings.summaryPrompt.includes("待办事项")) {
@@ -279,7 +278,7 @@ export default class AudioInboxPlugin extends Plugin {
 			const transcript = await this.callSTT(blob);
 			if (!transcript || transcript.trim().length < 2) {
 				statusEl.setText("⚠️ 无结果");
-				setTimeout(() => statusEl.remove(), 3000);
+				window.setTimeout(() => statusEl.remove(), 3000);
 				new Notice(`⚠️ 未识别到语音\n📁 ${audioPath}\n💡 打开 Obsidian 开发者工具 (Ctrl+Shift+I) 查看 Console 日志，或检查 API Key 是否正确`);
 				return;
 			}
@@ -296,13 +295,14 @@ export default class AudioInboxPlugin extends Plugin {
 			}
 
 			statusEl.setText("✅ 完成");
-			setTimeout(() => statusEl.remove(), 3000);
+			window.setTimeout(() => statusEl.remove(), 3000);
 			new Notice(`✅ 语音笔记已生成`);
 
-		} catch (err: any) {
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
 			statusEl.setText("❌ 失败");
-			setTimeout(() => statusEl.remove(), 5000);
-			new Notice(`❌ ${err.message || err}`, 8000);
+			window.setTimeout(() => statusEl.remove(), 5000);
+			new Notice(`❌ ${msg}`, 8000);
 			console.error(err);
 		} finally {
 			this.isBusy = false;
@@ -359,9 +359,10 @@ export default class AudioInboxPlugin extends Plugin {
 				const todos = extractTodos(summary);
 				if (todos.length > 0) await this.saveTodos(todos);
 				ok++;
-			} catch (e: any) {
+			} catch (e) {
 				fail++;
-				new Notice(`❌ ${fn}: ${e.message || e}`, 4000);
+				const msg = e instanceof Error ? e.message : String(e);
+				new Notice(`❌ ${fn}: ${msg}`, 4000);
 			}
 		}
 
@@ -372,9 +373,15 @@ export default class AudioInboxPlugin extends Plugin {
 
 	// ===== API CALLS =====
 
+	private async ensureFolder(dir: string): Promise<void> {
+		if (!(await this.app.vault.adapter.exists(dir))) {
+			await this.app.vault.createFolder(dir);
+		}
+	}
+
 	private async saveAudio(blob: Blob): Promise<string> {
 		const dir = normalizePath(this.settings.inboxFolder);
-		if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.createFolder(dir);
+		await this.ensureFolder(dir);
 		const now = new Date();
 		const fn = `录音-${fmtDate(now)}-${fmtTime(now)}.webm`;
 		const fp = normalizePath(`${dir}/${fn}`);
@@ -443,7 +450,7 @@ export default class AudioInboxPlugin extends Plugin {
 		console.log(`AudioInbox: STT response status=${resp.status}, contentType=${resp.headers?.["content-type"] || "?"}`);
 
 		if (resp.status !== 200) {
-			const errStr = (resp as any).text || JSON.stringify((resp as any).json || "");
+			const errStr: string = resp.text || (resp.json ? JSON.stringify(resp.json) : "");
 			console.error("AudioInbox: STT error response:", errStr);
 			if (errStr.includes("balance") || errStr.includes("30001") || errStr.includes("4032")) {
 				throw new Error("STT 余额不足，请前往 siliconflow.cn 充值（10元即可）");
@@ -458,13 +465,15 @@ export default class AudioInboxPlugin extends Plugin {
 		}
 
 		// response_format=text => API returns plain text
-		const result = (resp as any).text || "";
+		const result: string = resp.text || "";
 		console.log(`AudioInbox: STT result length=${result.length}, preview="${result.substring(0, 80)}"`);
 		return result;
 	}
 
 	private async convertToWav(blob: Blob): Promise<Blob> {
-		const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+		const win = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+		const AudioCtx = win.AudioContext || win.webkitAudioContext;
+		if (!AudioCtx) throw new Error("AudioContext not supported");
 		const ctx = new AudioCtx({ sampleRate: 16000 });
 		if (ctx.state === "suspended") await ctx.resume();
 		const audioBuf = await ctx.decodeAudioData(await blob.arrayBuffer());
@@ -516,12 +525,13 @@ export default class AudioInboxPlugin extends Plugin {
 			}),
 		});
 		if (resp.status !== 200) throw new Error(`AI (${resp.status})`);
-		return resp.json?.choices?.[0]?.message?.content || "";
+		const json = resp.json as { choices?: Array<{ message?: { content?: string } }> };
+		return json.choices?.[0]?.message?.content || "";
 	}
 
 	private async saveNote(audioPath: string, transcript: string, summary: string) {
 		const dir = normalizePath(this.settings.outputFolder);
-		if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.createFolder(dir);
+		await this.ensureFolder(dir);
 
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -544,7 +554,7 @@ export default class AudioInboxPlugin extends Plugin {
 		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
 
 		const dir = normalizePath(this.settings.outputFolder);
-		if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.createFolder(dir);
+		await this.ensureFolder(dir);
 
 		const np = normalizePath(`${dir}/待办事项.md`);
 		const now = new Date();
@@ -585,26 +595,20 @@ export default class AudioInboxPlugin extends Plugin {
 				console.log(`AudioInbox: Created vault ${cp} (${cleanContent.length} chars)`);
 			}
 
-			// Also save to Shortcuts iCloud folder (desktop) or clipboard (mobile)
+			// Also copy to clipboard for iOS Shortcuts sync
 			this.saveToShortcutsFolder(cleanContent);
 		} else {
 			console.log('AudioInbox: No clean todos to save (all empty or "无")');
 		}
 	}
 
-	/** Check if the app is running on mobile (Capacitor/Cordova, no Node.js fs) */
-	private isMobile(): boolean {
-		return /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent) || !!(window as any).capacitor;
-	}
-
-	/** Save clean todos to clipboard for iOS Shortcuts sync.
-	 *  Both desktop and mobile: use clipboard API (safe, no Node.js fs needed).
+	/** Copy clean todos to clipboard for iOS Shortcuts sync.
 	 *  The vault file (待办-clean.txt) is already saved by saveTodos(). */
 	private saveToShortcutsFolder(content: string) {
-		navigator.clipboard.writeText(content).then(() => {
+		void navigator.clipboard.writeText(content).then(() => {
 			console.log('AudioInbox: Copied todos to clipboard');
 			new Notice(`✅ 待办已同步\n📋 已复制到剪贴板`);
-		}).catch((e: any) => {
+		}).catch((e: unknown) => {
 			console.warn('AudioInbox: Clipboard write failed:', e);
 			new Notice(`⚠️ 剪贴板写入失败，但待办已保存到\n${this.settings.outputFolder}/待办-clean.txt`, 6000);
 		});
@@ -665,11 +669,11 @@ class AudioInboxSettingTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("h2", { text: "🎤 Audio Inbox — 语音笔记" });
+
+		new Setting(containerEl).setName("🎤 Audio Inbox — 语音笔记").setHeading();
 
 		// STT
-		containerEl.createEl("h3", { text: "语音转文字 (STT) — 硅基流动" });
-		containerEl.createEl("small", { text: "SiliconFlow SenseVoiceSmall 完全免费，需账户有余额（充10元够用很久）" });
+		new Setting(containerEl).setName("语音转文字 (STT) — 硅基流动").setDesc("SiliconFlow SenseVoiceSmall 完全免费，需账户有余额（充10元够用很久）").setHeading();
 
 		new Setting(containerEl).setName("STT API Key").addText(t => {
 			t.setValue(this.plugin.settings.sttApiKey); t.inputEl.type = "password";
@@ -683,7 +687,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			t.setValue(this.plugin.settings.sttLanguage).onChange(async v => { this.plugin.settings.sttLanguage = v; await this.plugin.saveSettings(); }));
 
 		// AI
-		containerEl.createEl("h3", { text: "AI 总结 — DeepSeek" });
+		new Setting(containerEl).setName("AI 总结 — DeepSeek").setHeading();
 		new Setting(containerEl).setName("DeepSeek API Key").addText(t => {
 			t.setValue(this.plugin.settings.aiApiKey); t.inputEl.type = "password";
 			t.onChange(async v => { this.plugin.settings.aiApiKey = v; await this.plugin.saveSettings(); });
@@ -698,7 +702,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 		});
 
 		// Output
-		containerEl.createEl("h3", { text: "输出" });
+		new Setting(containerEl).setName("输出").setHeading();
 		new Setting(containerEl).setName("录音保存目录").addText(t =>
 			t.setValue(this.plugin.settings.inboxFolder).onChange(async v => { this.plugin.settings.inboxFolder = v; await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("笔记输出目录").addText(t =>
