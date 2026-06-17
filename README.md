@@ -38,35 +38,15 @@
 
 ## 📸 Screenshots
 
-### 📱 Mobile — One-Tap Recording
+| Desktop — 录音界面 | Mobile — 悬浮按钮 | 生成的笔记 |
+|---|---|---|
+| ![Desktop Recording](screenshots/desktop.png) | ![Mobile FAB](screenshots/mobile.png) | ![Generated Note](screenshots/note.png) |
 
-![Recording Modal](screenshots/recording.jpg)
+| 插件设置面板 | DeepSeek AI 总结效果 |
+|---|
+| ![Settings](screenshots/settings.png) | ![AI Summary](screenshots/summary.png) |
 
-Tap the floating 🎤 button → Record → AI does the rest.
-
-### 📱 Mobile — File Explorer & FAB
-
-![Mobile Files](screenshots/mobile-files.jpg)
-
-All recordings saved automatically. Drag the FAB anywhere on screen.
-
-### 📝 Generated Notes with Todo Extraction
-
-![Notes & Todos](screenshots/note-todos.jpg)
-
-Each recording becomes a structured note. Todos are auto-extracted and ready to sync.
-
-### ⚙️ Settings
-
-![Settings](screenshots/settings.jpg)
-
-Just paste your SiliconFlow + DeepSeek API keys. That's it.
-
-### 🍎 iOS Shortcuts Integration
-
-![iOS Shortcut](screenshots/shortcut.jpg)
-
-One-tap sync todos from voice notes to Apple Reminders.
+> 📸 **如何截图？** 在电脑上打开 Obsidian → 录音/查看笔记 → 用 `Win+Shift+S` 截取 → 保存为 PNG → 放到 `screenshots/` 文件夹 → 推送到 GitHub。手机上可以用音量键+电源键截图。
 
 ## 🚀 Quick Start
 
@@ -138,11 +118,7 @@ If you have audio files (`.m4a`, `.mp3`, `.wav`, `.ogg`, `.webm`) in your inbox 
 
 ### iOS Shortcuts Integration
 
-#### Desktop (automatic)
-Audio Inbox writes `待办-clean.txt` to the Shortcuts iCloud folder automatically.
-
-#### Mobile (clipboard-based)
-On mobile, todos are copied to your clipboard. Create this Shortcut:
+After each voice recording, the plugin copies your clean todo list to the clipboard. Create this iOS Shortcut to sync them to Apple Reminders:
 
 | Step | Action | Setting |
 |---|---|---|
@@ -152,7 +128,7 @@ On mobile, todos are copied to your clipboard. Create this Shortcut:
 | ↳ | **Add New Reminder** | Title = Repeat Item |
 | 4 | **Show Notification** | "✅ Synced" |
 
-After each voice recording, tap the Shortcut to send todos to Apple Reminders.
+> 💡 Works on both desktop and mobile. After recording, run the Shortcut to import todos into Apple Reminders.
 
 ## ⚙️ Settings
 
