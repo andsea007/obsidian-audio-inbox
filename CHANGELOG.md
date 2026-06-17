@@ -2,6 +2,31 @@
 
 All notable changes to Audio Inbox will be documented in this file.
 
+## [2.0.4] - 2026-06-17
+
+### 🛡️ Obsidian Community Review Compliance
+
+Full pass to resolve all errors and warnings reported by the Obsidian community plugin automated scanner.
+
+#### Fixed (Errors — blocked review)
+- **OS detection**: Replaced `navigator.userAgent` regex with the official `Platform.isMobileApp` API
+- **CSS assignment**: Replaced direct `el.style.xxx = ...` with `el.style.setProperty(...)` for FAB positioning
+- **minAppVersion mismatch**: Bumped `minAppVersion` from `1.0.0` to `1.2.0` to match the APIs actually in use (`activeDocument`, `Setting.setHeading`, etc.)
+- **Settings headings**: Replaced `containerEl.createEl("h3", ...)` with `new Setting(containerEl).setName(...).setHeading()` for consistent UI
+
+#### Fixed (Warnings)
+- **Popout compatibility**: `setInterval` / `clearInterval` / `setTimeout` → `window.*` variants
+- **Popout compatibility**: `document` → `activeDocument` everywhere
+- **TypeScript safety**: Removed all `any` types; added proper interfaces for `RequestUrlResponse`, `AudioContext`, clipboard errors, etc.
+- **Promise handling**: Fire-and-forget promises now marked with `void` operator
+- **Dead code**: Removed unused variables (`dot`, `e`)
+- **Removed Node.js builtins**: No more `require('fs')`, `require('path')`, `require('os')`, `process.platform`
+- **Removed dependency**: Dropped `builtin-modules` from `package.json`
+
+#### Changed
+- **Shortcuts sync simplified**: `saveToShortcutsFolder()` now uses the clipboard API uniformly on desktop and mobile (previously desktop wrote directly to the iCloud Shortcuts folder via Node.js `fs`). The vault file `待办-clean.txt` is still written via the Obsidian Vault API.
+- **markTodosDone()**: No longer touches the filesystem outside the vault.
+
 ## [2.0.1] - 2026-06-16
 
 ### 🐛 Bug Fixes
