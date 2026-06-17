@@ -212,8 +212,7 @@ export default class AudioInboxPlugin extends Plugin {
 			dragging = true;
 			fab.style.setProperty("left", `${sl + dx}px`);
 			fab.style.setProperty("top", `${st + dy}px`);
-			fab.style.setProperty("right", "auto");
-			fab.style.setProperty("bottom", "auto");
+			fab.addClass("ai-fab-dragged");
 		};
 
 		const onEnd = () => {
@@ -471,7 +470,7 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private async convertToWav(blob: Blob): Promise<Blob> {
-		const win = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+		const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
 		const AudioCtx = win.AudioContext || win.webkitAudioContext;
 		if (!AudioCtx) throw new Error("AudioContext not supported");
 		const ctx = new AudioCtx({ sampleRate: 16000 });
@@ -670,7 +669,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName("🎤 Audio Inbox — 语音笔记").setHeading();
+		new Setting(containerEl).setName("🎤 语音笔记设置").setHeading();
 
 		// STT
 		new Setting(containerEl).setName("语音转文字 (STT) — 硅基流动").setDesc("SiliconFlow SenseVoiceSmall 完全免费，需账户有余额（充10元够用很久）").setHeading();
