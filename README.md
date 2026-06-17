@@ -4,10 +4,26 @@
 > Desktop & Mobile, minimal setup, Chinese-first.
 
 [![Obsidian Downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&query=%24%5B%22audio-inbox%22%5D.downloads&url=https://raw.githubusercontent.com/obsidianmd/obsidian-releases/community-plugins-stats.json&label=downloads)](https://obsidian.md/plugins?id=audio-inbox)
+[![GitHub release](https://img.shields.io/github/v/release/andsea007/obsidian-audio-inbox)](https://github.com/andsea007/obsidian-audio-inbox/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+> ⭐ **如果这个插件对你有帮助，请给个 Star 支持一下！**
 
 ---
 
 ## ✨ Features
+
+### 🆚 Why Audio Inbox?
+
+| | Audio Inbox | Other voice plugins |
+|---|---|---|
+| 🌐 **No VPN needed** | ✅ SiliconFlow + DeepSeek (国内) | ❌ OpenAI / Google |
+| 💰 **Free STT** | ✅ SiliconFlow 免费额度 | ❌ 需付费 API |
+| 📱 **Mobile recording** | ✅ 可拖动悬浮按钮 | ❌ 仅命令面板 |
+| 🍎 **Reminders sync** | ✅ iOS 快捷指令联动 | ❌ 不支持 |
+| 🎯 **One-click flow** | ✅ 录音→转写→总结 一条龙 | ⚠️ 多步操作 |
+
+### 📋 All Features
 
 | Feature | Description |
 |---|---|
@@ -22,10 +38,15 @@
 
 ## 📸 Screenshots
 
-<!-- Add your screenshots here -->
-| Desktop Recording | Mobile FAB | Generated Note |
+| Desktop — 录音界面 | Mobile — 悬浮按钮 | 生成的笔记 |
 |---|---|---|
-| ![Desktop](screenshots/desktop.png) | ![Mobile](screenshots/mobile.png) | ![Note](screenshots/note.png) |
+| ![Desktop Recording](screenshots/desktop.png) | ![Mobile FAB](screenshots/mobile.png) | ![Generated Note](screenshots/note.png) |
+
+| 插件设置面板 | DeepSeek AI 总结效果 |
+|---|
+| ![Settings](screenshots/settings.png) | ![AI Summary](screenshots/summary.png) |
+
+> 📸 **如何截图？** 在电脑上打开 Obsidian → 录音/查看笔记 → 用 `Win+Shift+S` 截取 → 保存为 PNG → 放到 `screenshots/` 文件夹 → 推送到 GitHub。手机上可以用音量键+电源键截图。
 
 ## 🚀 Quick Start
 
