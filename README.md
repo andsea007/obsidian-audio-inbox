@@ -21,6 +21,7 @@
 | 💰 **Free STT** | ✅ SiliconFlow 免费额度 | ❌ 需付费 API |
 | 📱 **Mobile recording** | ✅ 可拖动悬浮按钮 | ❌ 仅命令面板 |
 | 🍎 **Reminders sync** | ✅ iOS 快捷指令联动 | ❌ 不支持 |
+| 💭 **Memo Mode** | ✅ AI 自动区分提醒/备忘 | ❌ 仅待办 |
 | 🎯 **One-click flow** | ✅ 录音→转写→总结 一条龙 | ⚠️ 多步操作 |
 
 ### 📋 All Features
@@ -31,6 +32,7 @@
 | 🧠 **Smart Transcription** | Powered by SiliconFlow SenseVoiceSmall (free tier, works in China without VPN) |
 | 🤖 **AI Summarization** | DeepSeek automatically generates structured notes with summary & to-do list |
 | 📱 **Mobile Support** | Draggable floating action button on iOS/Android, fully functional |
+| 💭 **Memo Mode (New!)** | AI intelligently classifies recordings as reminders or memos. Memos are saved to a dedicated `备忘录.md` file with both AI summary and original transcript |
 | ✅ **Todo Extraction** | Auto-extracts `- [ ]` items from AI summary into a dedicated todo file |
 | 🍎 **Apple Reminders Sync** | Exports clean todo list for iOS Shortcuts integration |
 | 📂 **Batch Processing** | Process pre-recorded audio files in your inbox folder |
