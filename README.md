@@ -40,13 +40,13 @@
 
 ## 📸 Screenshots
 
-| Desktop — 录音界面 | Mobile — 悬浮按钮 | 生成的笔记 |
+| 录音界面 | 移动端悬浮按钮 | 生成的笔记 |
 |---|---|---|
-| ![Desktop Recording](screenshots/desktop.png) | ![Mobile FAB](screenshots/mobile.png) | ![Generated Note](screenshots/note.png) |
+| ![Recording](screenshots/recording.jpg) | ![Mobile FAB](screenshots/mobile-files.jpg) | ![Generated Note](screenshots/note-todos.jpg) |
 
-| 插件设置面板 | DeepSeek AI 总结效果 |
+| 插件设置面板 | iOS 快捷指令联动 |
 |---|
-| ![Settings](screenshots/settings.png) | ![AI Summary](screenshots/summary.png) |
+| ![Settings](screenshots/settings.jpg) | ![iOS Shortcut](screenshots/shortcut.jpg) |
 
 > 📸 **如何截图？** 在电脑上打开 Obsidian → 录音/查看笔记 → 用 `Win+Shift+S` 截取 → 保存为 PNG → 放到 `screenshots/` 文件夹 → 推送到 GitHub。手机上可以用音量键+电源键截图。
 
