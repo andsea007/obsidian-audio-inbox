@@ -2,6 +2,15 @@ import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePa
 
 // ==================== TYPES ====================
 
+type ContentType = "reminder" | "memo" | "mixed" | "unknown";
+
+interface ParsedAI {
+	type: ContentType;
+	todos: string[];
+	memo: string;
+	summary: string;
+}
+
 interface AudioInboxSettings {
 	inboxFolder: string;
 	outputFolder: string;
@@ -26,20 +35,27 @@ const DEFAULTS: AudioInboxSettings = {
 	aiApiUrl: "https://api.deepseek.com/v1/chat/completions",
 	aiApiKey: "",
 	aiModel: "deepseek-chat",
-	summaryPrompt: `将以下录音文本总结为结构化 Markdown 笔记。
+	summaryPrompt: `分析以下录音文本，判断内容类型并生成结构化笔记。
 
-必须包含以下两个部分（缺一不可）：
+## 判断类型
+- 提醒事项：包含明确的任务、待办、时间约定、行动项（如"明天开会"、"买牛奶"、"提醒我..."）
+- 备忘录：记录信息、想法、知识点、会议内容、无明确行动项（如"记住这个概念"、"今天学到了..."）
+- 混合：既有备忘内容又有待办事项
 
-## 📋 总结
-用要点和编号列表组织内容，突出关键信息、决定、结论。简洁但完整。
+## 输出格式（严格按此格式，不要添加额外说明）
 
-## ✅ 待办事项
-提取所有行动项、任务、承诺、约定。每个一行，用 - [ ] 开头。
-如果没有任何待办，写「- [ ] 无」
-格式举例：
-- [ ] 明天下午3点开会
-- [ ] 买牛奶和鸡蛋
-- [ ] 周五前完成报告`,
+### 类型
+[提醒事项 / 备忘录 / 混合]
+
+### 总结
+用要点和编号列表组织关键信息，突出重点。简洁但完整。
+
+### 待办事项
+（仅当类型为"提醒事项"或"混合"时输出此节；每个一行，用 - [ ] 开头；无待办则写「- [ ] 无」）
+- [ ] 示例待办
+
+### 备忘内容
+（仅当类型为"备忘录"或"混合"时输出此节；将原话整理成清晰条理的备忘正文，保留所有关键信息，去除口语化表达和冗余词句）`,
 	showTranscript: false,
 };
 
@@ -240,8 +256,8 @@ export default class AudioInboxPlugin extends Plugin {
 	async loadSettings() {
 		const saved = await this.loadData() as Partial<AudioInboxSettings> | null;
 		this.settings = Object.assign({}, DEFAULTS, saved || {});
-		// Auto-migrate: if old prompt detected, replace with new one
-		if (this.settings.summaryPrompt && this.settings.summaryPrompt.includes("5. 使用中文输出") && !this.settings.summaryPrompt.includes("待办事项")) {
+		// Auto-migrate: if old prompt (without "### 类型" section) detected, replace with new one
+		if (this.settings.summaryPrompt && !this.settings.summaryPrompt.includes("### 类型")) {
 			this.settings.summaryPrompt = DEFAULTS.summaryPrompt;
 			await this.saveSettings();
 		}
@@ -259,6 +275,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 		this.isBusy = true;
 		const statusEl = this.addStatusBarItem();
+		const flowStartTime = Date.now();
 
 		try {
 			// 1. Record
@@ -285,17 +302,28 @@ export default class AudioInboxPlugin extends Plugin {
 			// 4. AI summarize
 			statusEl.setText("📝 AI 总结...");
 			const summary = await this.callAI(transcript);
+			console.log('AudioInbox: AI response:', summary.substring(0, 300));
 
-			// 5. Extract todos & save
-			const todos = extractTodos(summary);
+			// 5. Parse AI response & save
+			const parsed = parseAIResponse(summary);
+			console.log(`AudioInbox: Parsed type=${parsed.type}, todos=${parsed.todos.length}, memoLen=${parsed.memo.length}`);
 			await this.saveNote(audioPath, transcript, summary);
-			if (todos.length > 0) {
-				await this.saveTodos(todos);
+
+			if (parsed.type === "reminder" || parsed.type === "mixed") {
+				if (parsed.todos.length > 0) {
+					await this.saveTodos(parsed.todos);
+				}
+			}
+			if (parsed.type === "memo" || parsed.type === "mixed") {
+				if (parsed.memo) {
+					await this.saveMemo(transcript, parsed.memo, audioPath);
+				}
 			}
 
 			statusEl.setText("✅ 完成");
 			window.setTimeout(() => statusEl.remove(), 3000);
-			new Notice(`✅ 语音笔记已生成`);
+			const typeLabel = parsed.type === "memo" ? "💭 备忘录" : parsed.type === "reminder" ? "📌 提醒事项" : parsed.type === "mixed" ? "🔀 混合" : "📝 语音笔记";
+			new Notice(`✅ ${typeLabel}已生成`);
 
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -305,6 +333,7 @@ export default class AudioInboxPlugin extends Plugin {
 			console.error(err);
 		} finally {
 			this.isBusy = false;
+			console.log(`AudioInbox: Flow completed in ${Date.now() - flowStartTime}ms`);
 		}
 	}
 
@@ -355,8 +384,13 @@ export default class AudioInboxPlugin extends Plugin {
 
 				const summary = await this.callAI(txt);
 				await this.saveNote(fp, txt, summary);
-				const todos = extractTodos(summary);
-				if (todos.length > 0) await this.saveTodos(todos);
+				const parsed = parseAIResponse(summary);
+				if ((parsed.type === "reminder" || parsed.type === "mixed") && parsed.todos.length > 0) {
+					await this.saveTodos(parsed.todos);
+				}
+				if ((parsed.type === "memo" || parsed.type === "mixed") && parsed.memo) {
+					await this.saveMemo(txt, parsed.memo, fp);
+				}
 				ok++;
 			} catch (e) {
 				fail++;
@@ -613,6 +647,33 @@ export default class AudioInboxPlugin extends Plugin {
 		});
 	}
 
+	/** Save a memo entry to 备忘录.md — includes both AI summary and original transcript. */
+	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
+		console.log(`AudioInbox: saveMemo called, memo length=${memoContent.length}`);
+
+		const dir = normalizePath(this.settings.outputFolder);
+		await this.ensureFolder(dir);
+
+		const np = normalizePath(`${dir}/备忘录.md`);
+		const now = new Date();
+		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+		let entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n`;
+		entry += `### 📝 AI 总结\n\n${memoContent}\n\n`;
+		entry += `### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n\n`;
+		entry += `📁 [[${audioPath}|录音文件]]\n`;
+
+		const ex = this.app.vault.getAbstractFileByPath(np);
+		if (ex instanceof TFile) {
+			await this.app.vault.modify(ex, (await this.app.vault.read(ex)) + entry);
+			console.log(`AudioInbox: Appended memo to ${np}`);
+		} else {
+			await this.app.vault.create(np, `# 💭 备忘录\n\n> 由 Audio Inbox 自动生成${entry}`);
+			console.log(`AudioInbox: Created ${np}`);
+		}
+	}
+
 	/** Mark all `- [ ]` in 待办事项.md as `- [x]` and clear 待办-clean.txt */
 	private async markTodosDone() {
 		const dir = normalizePath(this.settings.outputFolder);
@@ -645,18 +706,81 @@ export default class AudioInboxPlugin extends Plugin {
 
 // ==================== UTILS ====================
 
-function extractTodos(summary: string): string[] {
+/** Parse the AI response to extract content type, todos, memo, and summary.
+ *  Handles both the new structured format (### 类型) and the legacy format (## 📋 总结 / ## ✅ 待办事项). */
+function parseAIResponse(text: string): ParsedAI {
+	const lines = text.split("\n");
+	let type: ContentType = "unknown";
 	const todos: string[] = [];
-	const lines = summary.split("\n");
-	let inSection = false;
+	let memo = "";
+	let summary = "";
+
+	let currentSection: "type" | "summary" | "todos" | "memo" | null = null;
+
 	for (const line of lines) {
-		if (/^##\s*✅?\s*待办/.test(line)) { inSection = true; continue; }
-		if (inSection && /^##/.test(line)) break;
-		if (inSection && /^\s*-\s*\[ \]\s*\S/.test(line)) {
-			todos.push(line.trim());
+		const trimmed = line.trim();
+
+		// Detect section headers — accept both ### and ##, with or without emoji
+		// New format: ### 类型 / ### 总结 / ### 待办事项 / ### 备忘内容
+		// Old format: ## 📋 总结 / ## ✅ 待办事项
+		if (/^#{2,3}\s*类型/i.test(trimmed)) {
+			currentSection = "type";
+			continue;
+		}
+		if (/^#{2,3}\s*📋?\s*总结/i.test(trimmed)) {
+			currentSection = "summary";
+			continue;
+		}
+		if (/^#{2,3}\s*✅?\s*待办/i.test(trimmed)) {
+			currentSection = "todos";
+			continue;
+		}
+		if (/^#{2,3}\s*💭?\s*备忘/i.test(trimmed)) {
+			currentSection = "memo";
+			continue;
+		}
+
+		// Extract content based on current section
+		if (currentSection === "type" && trimmed) {
+			if (trimmed.includes("提醒")) type = "reminder";
+			else if (trimmed.includes("备忘")) type = "memo";
+			else if (trimmed.includes("混合")) type = "mixed";
+		} else if (currentSection === "summary" && trimmed) {
+			summary += line + "\n";
+		} else if (currentSection === "todos") {
+			if (/^\s*-\s*\[ \]\s*\S/.test(line)) {
+				todos.push(line.trim());
+			}
+		} else if (currentSection === "memo" && trimmed) {
+			memo += line + "\n";
 		}
 	}
-	return todos;
+
+	// Fallback inference when AI didn't output a ### 类型 section
+	if (type === "unknown") {
+		const hasTodos = todos.length > 0;
+		const hasMemo = memo.trim().length > 0;
+		if (hasTodos && hasMemo) type = "mixed";
+		else if (hasTodos) type = "reminder";
+		else if (hasMemo) type = "memo";
+		// If neither, check the summary for action-oriented keywords
+		else if (summary) {
+			// If summary mentions tasks/todos keywords, treat as reminder
+			if (/待办|任务|提醒|记得|要去|要买|要完成|开会|提交/.test(summary)) {
+				type = "reminder";
+			} else {
+				type = "memo";
+				memo = summary; // use summary as memo content
+			}
+		}
+	}
+
+	// If type is memo/mixed but memo is empty, use summary as memo content
+	if ((type === "memo" || type === "mixed") && !memo.trim() && summary.trim()) {
+		memo = summary;
+	}
+
+	return { type, todos, memo: memo.trim(), summary: summary.trim() };
 }
 
 // ==================== SETTINGS TAB ====================
