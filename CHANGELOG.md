@@ -2,6 +2,31 @@
 
 All notable changes to Audio Inbox will be documented in this file.
 
+## [2.1.1] - 2026-06-18
+
+### ✨ New Feature: Memo Mode
+
+Audio Inbox now intelligently distinguishes between **reminders** and **memos**, saving each to a dedicated file.
+
+#### How it works
+The AI analyzes each recording and classifies it as one of:
+- **📌 提醒事项 (Reminder)** — has actionable tasks → saved to `待办事项.md` (unchanged)
+- **💭 备忘录 (Memo)** — records info/ideas/knowledge, no action items → saved to new `备忘录.md`
+- **🔀 混合 (Mixed)** — has both → saved to both files
+
+#### Memo file format (`备忘录.md`)
+Each entry includes:
+- 📝 **AI 总结** — AI-organized, cleaned-up version of the content
+- 🗣️ **原话** — the original verbatim transcript from STT
+- 📁 Link to the audio recording
+
+#### Improvements
+- **Smarter AI prompt** — asks the AI to classify content type and output structured sections (### 类型 / ### 总结 / ### 待办事项 / ### 备忘内容)
+- **Robust parser** — `parseAIResponse()` handles both the new structured format and legacy `## 📋 总结` / `## ✅ 待办事项` formats
+- **Fallback inference** — if the AI doesn't output a type, the parser infers it from content (todos present → reminder, keywords like "开会/买/记得" → reminder, otherwise → memo)
+- **Better logging** — added console logs for AI response, parsed type, and flow timing to aid debugging
+- **Auto-migration** — old `summaryPrompt` settings are automatically upgraded to the new prompt on load
+
 ## [2.0.5] - 2026-06-17
 
 ### 🛡️ Final Review Compliance
