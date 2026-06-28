@@ -2,6 +2,22 @@
 
 All notable changes to Audio Inbox will be documented in this file.
 
+## [2.1.3] - 2026-06-28
+
+### 🐛 Bug Fixes
+- **手机端备忘录无法保存** — `saveMemo()` 增加完整的 try-catch 错误处理，将 vault 文件读写操作拆分为独立步骤，修复了移动端 Capacitor 环境下的异步时序问题。现在手机录音→AI分类→备忘录保存完全正常工作。
+
+### ✨ New Features
+- **处理后自动删除录音文件** — 新增设置开关「处理后删除录音文件」（默认开启）。录音转文字+AI处理完成后自动删除原始音频文件，使用 `vault.trash()` 安全删除可恢复。手机再也不用担心音频文件堆满存储空间。桌面端和手机端均生效。
+- 批量处理（处理录音文件夹）也会在处理完成后自动删除。
+
+### 🎨 UI Improvements
+- **侧边栏图标**：`mic` 改为 `audio-lines`（音频波纹），更现代、不撞车
+- **移动端悬浮按钮**：紫色圆形 emoji 改为红色圆形 + 白色SVG矢量图标（圆环套实心点的"瞳"设计），深色主题下辨识度极高
+
+### 📖 Docs
+- README 新增录音时长建议：控制在 5 分钟以内以获得最佳 STT 识别和 AI 总结效果
+
 ## [2.1.1] - 2026-06-18
 
 ### ✨ New Feature: Memo Mode
