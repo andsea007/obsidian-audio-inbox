@@ -23,6 +23,7 @@ interface AudioInboxSettings {
 	aiModel: string;
 	summaryPrompt: string;
 	showTranscript: boolean;
+	deleteAfterProcess: boolean;
 }
 
 const DEFAULTS: AudioInboxSettings = {
@@ -57,6 +58,7 @@ const DEFAULTS: AudioInboxSettings = {
 ### 备忘内容
 （仅当类型为"备忘录"或"混合"时输出此节；将原话整理成清晰条理的备忘正文，保留所有关键信息，去除口语化表达和冗余词句）`,
 	showTranscript: false,
+	deleteAfterProcess: true,
 };
 
 // ==================== RECORDING MODAL ====================
@@ -167,7 +169,7 @@ export default class AudioInboxPlugin extends Plugin {
 		await this.loadSettings();
 
 		// Ribbon — main record button
-		this.addRibbonIcon("mic", "语音笔记 — 开始录音", () => this.startRecordFlow());
+		this.addRibbonIcon("audio-lines", "语音笔记 — 开始录音", () => this.startRecordFlow());
 
 		// Command — record
 		this.addCommand({ id: "start-voice-record", name: "开始语音笔记（录音）", callback: () => this.startRecordFlow() });
@@ -189,7 +191,7 @@ export default class AudioInboxPlugin extends Plugin {
 		if (!Platform.isMobileApp) return;
 
 		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
-		fab.createSpan({ text: "🎤", cls: "ai-fab-icon" });
+		fab.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#fff" stroke="none"/></svg>`;
 		this.fabEl = fab;
 
 		let dragging = false;
@@ -261,6 +263,11 @@ export default class AudioInboxPlugin extends Plugin {
 			this.settings.summaryPrompt = DEFAULTS.summaryPrompt;
 			await this.saveSettings();
 		}
+		// Auto-migrate: if deleteAfterProcess not set (older settings), default to true
+		if (saved && saved.deleteAfterProcess === undefined) {
+			this.settings.deleteAfterProcess = true;
+			await this.saveSettings();
+		}
 	}
 	async saveSettings() { await this.saveData(this.settings); }
 
@@ -317,6 +324,17 @@ export default class AudioInboxPlugin extends Plugin {
 			if (parsed.type === "memo" || parsed.type === "mixed") {
 				if (parsed.memo) {
 					await this.saveMemo(transcript, parsed.memo, audioPath);
+				}
+			}
+
+			// 6. Delete audio file if enabled (save storage)
+			if (this.settings.deleteAfterProcess) {
+				try {
+					const af = this.app.vault.getAbstractFileByPath(audioPath);
+					if (af instanceof TFile) await this.app.vault.trash(af, true);
+					console.log(`AudioInbox: Deleted audio ${audioPath}`);
+				} catch (e) {
+					console.warn('AudioInbox: Could not delete audio file:', e);
 				}
 			}
 
@@ -390,6 +408,13 @@ export default class AudioInboxPlugin extends Plugin {
 				}
 				if ((parsed.type === "memo" || parsed.type === "mixed") && parsed.memo) {
 					await this.saveMemo(txt, parsed.memo, fp);
+				}
+				// Delete processed audio
+				if (this.settings.deleteAfterProcess) {
+					try {
+						const af = this.app.vault.getAbstractFileByPath(fp);
+						if (af instanceof TFile) await this.app.vault.trash(af, true);
+					} catch (e) { console.warn('AudioInbox: Could not delete:', fp, e); }
 				}
 				ok++;
 			} catch (e) {
@@ -647,9 +672,10 @@ export default class AudioInboxPlugin extends Plugin {
 		});
 	}
 
-	/** Save a memo entry to 备忘录.md — includes both AI summary and original transcript. */
+	/** Save a memo entry to 备忘录.md — includes both AI summary and original transcript.
+	 *  Uses Obsidian vault API only (works on desktop & mobile, no Node.js fs). */
 	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
-		console.log(`AudioInbox: saveMemo called, memo length=${memoContent.length}`);
+		console.log(`AudioInbox: saveMemo called, memo length=${memoContent.length}, transcript length=${transcript.length}`);
 
 		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
@@ -661,16 +687,21 @@ export default class AudioInboxPlugin extends Plugin {
 
 		let entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n`;
 		entry += `### 📝 AI 总结\n\n${memoContent}\n\n`;
-		entry += `### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n\n`;
-		entry += `📁 [[${audioPath}|录音文件]]\n`;
+		entry += `### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
 
-		const ex = this.app.vault.getAbstractFileByPath(np);
-		if (ex instanceof TFile) {
-			await this.app.vault.modify(ex, (await this.app.vault.read(ex)) + entry);
-			console.log(`AudioInbox: Appended memo to ${np}`);
-		} else {
-			await this.app.vault.create(np, `# 💭 备忘录\n\n> 由 Audio Inbox 自动生成${entry}`);
-			console.log(`AudioInbox: Created ${np}`);
+		try {
+			const ex = this.app.vault.getAbstractFileByPath(np);
+			if (ex instanceof TFile) {
+				const oldContent = await this.app.vault.read(ex);
+				await this.app.vault.modify(ex, oldContent + entry);
+				console.log(`AudioInbox: Appended memo to ${np}`);
+			} else {
+				await this.app.vault.create(np, `# 💭 备忘录\n\n> 由 Audio Inbox 自动生成${entry}`);
+				console.log(`AudioInbox: Created ${np}`);
+			}
+		} catch (err) {
+			console.error(`AudioInbox: saveMemo failed for ${np}`, err);
+			new Notice(`⚠️ 备忘录保存失败，请检查 ${dir} 目录权限`, 5000);
 		}
 	}
 
@@ -832,6 +863,8 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			t.setValue(this.plugin.settings.outputFolder).onChange(async v => { this.plugin.settings.outputFolder = v; await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("显示原始文本").addToggle(t =>
 			t.setValue(this.plugin.settings.showTranscript).onChange(async v => { this.plugin.settings.showTranscript = v; await this.plugin.saveSettings(); }));
+		new Setting(containerEl).setName("处理后删除录音文件").setDesc("开启后录音转文字完成后自动删除原音频，节省空间。关闭则保留录音文件。").addToggle(t =>
+			t.setValue(this.plugin.settings.deleteAfterProcess).onChange(async v => { this.plugin.settings.deleteAfterProcess = v; await this.plugin.saveSettings(); }));
 	}
 }
 
