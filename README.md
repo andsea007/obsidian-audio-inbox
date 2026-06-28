@@ -83,9 +83,11 @@ You need **two API keys** (both are domestic China services, no VPN needed):
 
 ### Recording a Voice Note
 
-- **Desktop**: Click the 🎤 mic icon in the left ribbon
-- **Mobile**: Tap the floating 🎤 button (drag it to reposition)
+- **Desktop**: Click the mic icon in the left ribbon
+- **Mobile**: Tap the floating red button (drag it to reposition)
 - **Command Palette**: `Ctrl/Cmd + P` → "开始语音笔记（录音）"
+
+> ⏱️ **建议录音时长控制在 5 分钟以内**，以获得最佳的语音识别准确率和 AI 总结效果。过长的录音可能影响 STT 识别质量。
 
 ### Workflow
 
