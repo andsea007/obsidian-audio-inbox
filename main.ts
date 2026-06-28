@@ -191,7 +191,7 @@ export default class AudioInboxPlugin extends Plugin {
 		if (!Platform.isMobileApp) return;
 
 		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
-		fab.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#fff" stroke="none"/></svg>`;
+		fab.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="4" opacity="0.55"/><circle cx="12" cy="12" r="7" opacity="0.35"/><circle cx="12" cy="12" r="10" opacity="0.18"/><circle cx="12" cy="12" r="3" fill="#fff" stroke="none"/></svg>`;
 		this.fabEl = fab;
 
 		let dragging = false;
@@ -258,12 +258,13 @@ export default class AudioInboxPlugin extends Plugin {
 	async loadSettings() {
 		const saved = await this.loadData() as Partial<AudioInboxSettings> | null;
 		this.settings = Object.assign({}, DEFAULTS, saved || {});
-		// Auto-migrate: if old prompt (without "### 类型" section) detected, replace with new one
-		if (this.settings.summaryPrompt && !this.settings.summaryPrompt.includes("### 类型")) {
+		// Auto-migrate: if old prompt (without key new-format sections) detected, force replace
+		if (this.settings.summaryPrompt && (!this.settings.summaryPrompt.includes("### 备忘内容") || !this.settings.summaryPrompt.includes("### 类型"))) {
 			this.settings.summaryPrompt = DEFAULTS.summaryPrompt;
 			await this.saveSettings();
+			console.log('AudioInbox: Migrated summaryPrompt to new format');
 		}
-		// Auto-migrate: if deleteAfterProcess not set (older settings), default to true
+		// Auto-migrate: if deleteAfterProcess not set, default to true
 		if (saved && saved.deleteAfterProcess === undefined) {
 			this.settings.deleteAfterProcess = true;
 			await this.saveSettings();
@@ -790,18 +791,19 @@ function parseAIResponse(text: string): ParsedAI {
 	// Fallback inference when AI didn't output a ### 类型 section
 	if (type === "unknown") {
 		const hasTodos = todos.length > 0;
+		const hasRealTodos = todos.some(t => !t.includes("无"));
 		const hasMemo = memo.trim().length > 0;
-		if (hasTodos && hasMemo) type = "mixed";
-		else if (hasTodos) type = "reminder";
+		const hasSummary = summary.trim().length > 0;
+		if (hasMemo && hasRealTodos) type = "mixed";
 		else if (hasMemo) type = "memo";
-		// If neither, check the summary for action-oriented keywords
-		else if (summary) {
-			// If summary mentions tasks/todos keywords, treat as reminder
-			if (/待办|任务|提醒|记得|要去|要买|要完成|开会|提交/.test(summary)) {
+		else if (hasRealTodos) type = "reminder";
+		// If only "无" todos or no todos at all, but has summary → likely a memo
+		else if (hasSummary) {
+			if (/待办|任务|提醒|记得要去|要买|要完成|开会|提交|约定|^{{1,2}\d/.test(summary)) {
 				type = "reminder";
 			} else {
 				type = "memo";
-				memo = summary; // use summary as memo content
+				memo = summary;
 			}
 		}
 	}
