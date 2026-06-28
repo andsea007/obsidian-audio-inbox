@@ -312,9 +312,8 @@ export default class AudioInboxPlugin extends Plugin {
 			const summary = await this.callAI(transcript);
 			console.log('AudioInbox: AI response:', summary.substring(0, 300));
 
-			// 5. Parse AI response — save directly to memo/todo files only
+			// 5. Parse AI response — save to memo/todo only
 			const parsed = parseAIResponse(summary);
-			new Notice(`🔍 类型=${parsed.type} 备忘=${parsed.memo.length}字`, 4000);
 
 			if (parsed.type === "reminder" || parsed.type === "mixed") {
 				if (parsed.todos.length > 0) {
@@ -324,11 +323,7 @@ export default class AudioInboxPlugin extends Plugin {
 			if (parsed.type === "memo" || parsed.type === "mixed") {
 				if (parsed.memo) {
 					await this.saveMemo(transcript, parsed.memo, audioPath);
-				} else {
-					new Notice(`⚠️ 备忘内容为空，不保存`, 5000);
 				}
-			} else if (parsed.todos.length === 0) {
-				new Notice(`⚠️ 类型=${parsed.type}，既不保存备忘也不保存待办`, 6000);
 			}
 
 			// 6. Delete audio file if enabled (save storage)
@@ -677,7 +672,6 @@ export default class AudioInboxPlugin extends Plugin {
 
 	/** Save a memo entry to 备忘录.md. */
 	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
-		new Notice(`📝 正在保存备忘录...`, 2000);
 		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
 		const np = normalizePath(`${dir}/备忘录.md`);
@@ -691,13 +685,10 @@ export default class AudioInboxPlugin extends Plugin {
 			if (ex instanceof TFile) {
 				const oldContent = await this.app.vault.read(ex);
 				await this.app.vault.modify(ex, oldContent + entry);
-				new Notice(`✅ 备忘录已追加`, 3000);
 			} else {
 				await this.app.vault.create(np, `# 💭 备忘录\n\n> 由 Audio Inbox 自动生成${entry}`);
-				new Notice(`✅ 备忘录已创建`, 3000);
 			}
 		} catch (e) {
-			new Notice(`❌ 备忘录失败: ${e instanceof Error ? e.message : String(e)}`, 8000);
 			console.error('AudioInbox: saveMemo error', e);
 		}
 	}
