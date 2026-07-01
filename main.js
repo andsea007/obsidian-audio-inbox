@@ -77,10 +77,10 @@ ${e}
 ${a}`);let d=(0,i.normalizePath)(`${e}/\u5F85\u529E-clean.txt`),l=[];for(let c of t){let m=c.replace(/^- \[ \] /,"").trim();m&&m!=="\u65E0"&&l.push(m)}if(console.log(`AudioInbox: clean todos (${l.length}):`,l),l.length>0){let c=l.join(`
 `),m=this.app.vault.getAbstractFileByPath(d);m instanceof i.TFile?(await this.app.vault.modify(m,c),console.log(`AudioInbox: Updated vault ${d} (${c.length} chars)`)):(await this.app.vault.create(d,c),console.log(`AudioInbox: Created vault ${d} (${c.length} chars)`)),this.saveToShortcutsFolder(c)}else console.log('AudioInbox: No clean todos to save (all empty or "\u65E0")')}saveToShortcutsFolder(t){navigator.clipboard.writeText(t).then(()=>{console.log("AudioInbox: Copied todos to clipboard"),new i.Notice(`\u2705 \u5F85\u529E\u5DF2\u540C\u6B65
 \u{1F4CB} \u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F`)}).catch(e=>{console.warn("AudioInbox: Clipboard write failed:",e),new i.Notice(`\u26A0\uFE0F \u526A\u8D34\u677F\u5199\u5165\u5931\u8D25\uFF0C\u4F46\u5F85\u529E\u5DF2\u4FDD\u5B58\u5230
-${this.settings.outputFolder}/\u5F85\u529E-clean.txt`,6e3)})}async saveMemo(t,e,s){let o=(0,i.normalizePath)(this.settings.outputFolder);await this.ensureFolder(o);let n=(0,i.normalizePath)(`${o}/\u5907\u5FD8\u5F55.md`),r=new Date,a=`${r.getFullYear()}-${w(r.getMonth()+1)}-${w(r.getDate())}`,u=`${w(r.getHours())}:${w(r.getMinutes())}`,d=`
+${this.settings.outputFolder}/\u5F85\u529E-clean.txt`,6e3)})}async saveMemo(t,e,s){let o=(0,i.normalizePath)(this.settings.outputFolder);await this.ensureFolder(o);let n=new Date,r=`${n.getFullYear()}-${w(n.getMonth()+1)}-${w(n.getDate())}`,a=`${w(n.getHours())}:${w(n.getMinutes())}`,u=(0,i.normalizePath)(`${o}/\u5907\u5FD8\u5F55-${r}.md`),d=`
 ---
 
-## \u{1F4AD} ${a} ${u}
+## \u{1F4AD} ${r} ${a}
 
 ### \u{1F4DD} AI \u603B\u7ED3
 
@@ -90,7 +90,7 @@ ${e}
 
 > ${t.replace(/\n/g,`
 > `)}
-`;try{let l=this.app.vault.getAbstractFileByPath(n);if(l instanceof i.TFile){let c=await this.app.vault.read(l);await this.app.vault.modify(l,c+d)}else await this.app.vault.create(n,`# \u{1F4AD} \u5907\u5FD8\u5F55
+`;try{let l=this.app.vault.getAbstractFileByPath(u);if(l instanceof i.TFile){let c=await this.app.vault.read(l);await this.app.vault.modify(l,c+d)}else await this.app.vault.create(u,`# \u{1F4AD} \u5907\u5FD8\u5F55 \u2014 ${r}
 
 > \u7531 Audio Inbox \u81EA\u52A8\u751F\u6210${d}`)}catch(l){console.error("AudioInbox: saveMemo error",l)}}async markTodosDone(){let t=(0,i.normalizePath)(this.settings.outputFolder),e=(0,i.normalizePath)(`${t}/\u5F85\u529E\u4E8B\u9879.md`),s=(0,i.normalizePath)(`${t}/\u5F85\u529E-clean.txt`),o=this.app.vault.getAbstractFileByPath(e);if(o instanceof i.TFile){let r=await this.app.vault.read(o),a=r.replace(/^- \[ \] /gm,"- [x] ");a!==r&&await this.app.vault.modify(o,a)}let n=this.app.vault.getAbstractFileByPath(s);n instanceof i.TFile&&await this.app.vault.modify(n,""),new i.Notice("\u2705 \u5DF2\u540C\u6B65\u7684\u5F85\u529E\u5DF2\u6807\u8BB0\u4E3A\u5B8C\u6210\uFF0C\u5F85\u529E\u6587\u4EF6\u5DF2\u6E05\u7A7A")}onunload(){this.fabEl&&this.fabEl.remove()}};function I(g){let v=g.split(`
 `),t="unknown",e=[],s="",o="",n=null;for(let r of v){let a=r.trim();if(/^#{2,3}\s*类型/i.test(a)){n="type";continue}if(/^#{2,3}\s*总结/i.test(a)){n="summary";continue}if(/^#{2,3}\s*待办/i.test(a)){n="todos";continue}if(/^#{2,3}\s*备忘/i.test(a)){n="memo";continue}n==="type"&&a?a.includes("\u63D0\u9192")?t="reminder":a.includes("\u5907\u5FD8")?t="memo":a.includes("\u6DF7\u5408")&&(t="mixed"):n==="summary"&&a?o+=r+`
