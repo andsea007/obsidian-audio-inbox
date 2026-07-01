@@ -627,21 +627,27 @@ export default class AudioInboxPlugin extends Plugin {
 		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
 
-		const np = normalizePath(`${dir}/待办事项.md`);
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+		const np = normalizePath(`${dir}/待办-${ds}.md`);
 
 		let entry = `\n## 🎤 ${ds} ${ts}\n`;
 		for (const t of todos) {
 			entry += `${t}\n`;
 		}
 
-		const ex = this.app.vault.getAbstractFileByPath(np);
-		if (ex instanceof TFile) {
-			await this.app.vault.modify(ex, (await this.app.vault.read(ex)) + entry);
-		} else {
-			await this.app.vault.create(np, `# ✅ 待办事项\n\n> 由 Audio Inbox 自动生成\n${entry}`);
+		try {
+			const adapter = this.app.vault.adapter;
+			const exists = await adapter.exists(np);
+			if (exists) {
+				const old = await adapter.read(np);
+				await adapter.write(np, old + entry);
+			} else {
+				await adapter.write(np, `# ✅ 待办事项 — ${ds}\n\n> 由 Audio Inbox 自动生成\n${entry}`);
+			}
+		} catch (e) {
+			console.error('AudioInbox: saveTodos error', e);
 		}
 
 		// Also save clean file for iOS Shortcut: no prefix, one task per line
