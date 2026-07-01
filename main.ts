@@ -200,7 +200,24 @@ export default class AudioInboxPlugin extends Plugin {
 		if (!Platform.isMobileApp) return;
 
 		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
-		fab.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="4" opacity="0.55"/><circle cx="12" cy="12" r="7" opacity="0.35"/><circle cx="12" cy="12" r="10" opacity="0.18"/><circle cx="12" cy="12" r="3" fill="#fff" stroke="none"/></svg>`;
+		const svgns = "http://www.w3.org/2000/svg";
+		const svg = document.createElementNS(svgns, "svg");
+		svg.setAttribute("width", "40"); svg.setAttribute("height", "40");
+		svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "#fff"); svg.setAttribute("stroke-width", "1.5");
+		svg.setAttribute("stroke-linecap", "round");
+		[4, 7, 10].forEach((r, i) => {
+			const c = document.createElementNS(svgns, "circle");
+			c.setAttribute("cx", "12"); c.setAttribute("cy", "12");
+			c.setAttribute("r", String(r));
+			c.setAttribute("opacity", String([0.55, 0.35, 0.18][i]));
+			svg.appendChild(c);
+		});
+		const dot = document.createElementNS(svgns, "circle");
+		dot.setAttribute("cx", "12"); dot.setAttribute("cy", "12");
+		dot.setAttribute("r", "3"); dot.setAttribute("fill", "#fff");
+		dot.setAttribute("stroke", "none"); svg.appendChild(dot);
+		fab.appendChild(svg);
 		this.fabEl = fab;
 
 		let dragging = false;
@@ -339,7 +356,7 @@ export default class AudioInboxPlugin extends Plugin {
 			if (this.settings.deleteAfterProcess) {
 				try {
 					const af = this.app.vault.getAbstractFileByPath(audioPath);
-					if (af instanceof TFile) await this.app.vault.trash(af, true);
+					if (af instanceof TFile) await this.app.fileManager.trashFile(af);
 					console.log(`AudioInbox: Deleted audio ${audioPath}`);
 				} catch (e) {
 					console.warn('AudioInbox: Could not delete audio file:', e);
@@ -420,7 +437,7 @@ export default class AudioInboxPlugin extends Plugin {
 				if (this.settings.deleteAfterProcess) {
 					try {
 						const af = this.app.vault.getAbstractFileByPath(fp);
-						if (af instanceof TFile) await this.app.vault.trash(af, true);
+						if (af instanceof TFile) await this.app.fileManager.trashFile(af);
 					} catch (e) { console.warn('AudioInbox: Could not delete:', fp, e); }
 				}
 				ok++;
@@ -800,7 +817,6 @@ function parseAIResponse(text: string): ParsedAI {
 
 	// Fallback inference when AI didn't output a ### 类型 section
 	if (type === "unknown") {
-		const hasTodos = todos.length > 0;
 		const hasRealTodos = todos.some(t => !t.includes("无"));
 		const hasMemo = memo.trim().length > 0;
 		const hasSummary = summary.trim().length > 0;
@@ -880,6 +896,6 @@ class AudioInboxSettingTab extends PluginSettingTab {
 	}
 }
 
-function pad(n: number) { return n.toString().padStart(2, "0"); }
+function pad(n: number): string { return n.toString().padStart(2, "0"); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtTime(d: Date) { return `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`; }
