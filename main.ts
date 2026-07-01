@@ -439,8 +439,14 @@ export default class AudioInboxPlugin extends Plugin {
 	// ===== API CALLS =====
 
 	private async ensureFolder(dir: string): Promise<void> {
-		if (!(await this.app.vault.adapter.exists(dir))) {
-			await this.app.vault.createFolder(dir);
+		// Split path and create each level to work around mobile recursive folder issues
+		const parts = dir.split("/").filter(p => p.length > 0);
+		let current = "";
+		for (const part of parts) {
+			current = current ? `${current}/${part}` : part;
+			if (!(await this.app.vault.adapter.exists(current))) {
+				await this.app.vault.createFolder(current);
+			}
 		}
 	}
 
@@ -679,26 +685,29 @@ export default class AudioInboxPlugin extends Plugin {
 		});
 	}
 
-	/** Save a memo entry — organized under 备忘录/ subfolder by date. */
+	/** Save a memo entry — one file per day. Uses adapter for mobile reliability. */
 	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
-		const dir = normalizePath(`${this.settings.outputFolder}/备忘录`);
+		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const np = normalizePath(`${dir}/${ds}.md`);
+		const np = normalizePath(`${dir}/备忘-${ds}.md`);
 		const entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n### 📝 AI 总结\n\n${memoContent}\n\n### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
 
 		try {
-			const ex = this.app.vault.getAbstractFileByPath(np);
-			if (ex instanceof TFile) {
-				const oldContent = await this.app.vault.read(ex);
-				await this.app.vault.modify(ex, oldContent + entry);
+			const adapter = this.app.vault.adapter;
+			const exists = await adapter.exists(np);
+			if (exists) {
+				const old = await adapter.read(np);
+				await adapter.write(np, old + entry);
 			} else {
-				await this.app.vault.create(np, `# 💭 备忘录 — ${ds}\n\n> 由 Audio Inbox 自动生成${entry}`);
+				await adapter.write(np, `# 💭 备忘录 — ${ds}\n\n> 由 Audio Inbox 自动生成${entry}`);
 			}
 		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
 			console.error('AudioInbox: saveMemo error', e);
+			new Notice(`❌ 备忘录保存失败: ${msg}`, 8000);
 		}
 	}
 
