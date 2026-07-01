@@ -77,7 +77,7 @@ ${e}
 ${a}`);let d=(0,i.normalizePath)(`${e}/\u5F85\u529E-clean.txt`),l=[];for(let c of t){let m=c.replace(/^- \[ \] /,"").trim();m&&m!=="\u65E0"&&l.push(m)}if(console.log(`AudioInbox: clean todos (${l.length}):`,l),l.length>0){let c=l.join(`
 `),m=this.app.vault.getAbstractFileByPath(d);m instanceof i.TFile?(await this.app.vault.modify(m,c),console.log(`AudioInbox: Updated vault ${d} (${c.length} chars)`)):(await this.app.vault.create(d,c),console.log(`AudioInbox: Created vault ${d} (${c.length} chars)`)),this.saveToShortcutsFolder(c)}else console.log('AudioInbox: No clean todos to save (all empty or "\u65E0")')}saveToShortcutsFolder(t){navigator.clipboard.writeText(t).then(()=>{console.log("AudioInbox: Copied todos to clipboard"),new i.Notice(`\u2705 \u5F85\u529E\u5DF2\u540C\u6B65
 \u{1F4CB} \u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F`)}).catch(e=>{console.warn("AudioInbox: Clipboard write failed:",e),new i.Notice(`\u26A0\uFE0F \u526A\u8D34\u677F\u5199\u5165\u5931\u8D25\uFF0C\u4F46\u5F85\u529E\u5DF2\u4FDD\u5B58\u5230
-${this.settings.outputFolder}/\u5F85\u529E-clean.txt`,6e3)})}async saveMemo(t,e,s){let o=(0,i.normalizePath)(this.settings.outputFolder);await this.ensureFolder(o);let n=new Date,r=`${n.getFullYear()}-${w(n.getMonth()+1)}-${w(n.getDate())}`,a=`${w(n.getHours())}:${w(n.getMinutes())}`,u=(0,i.normalizePath)(`${o}/\u5907\u5FD8\u5F55-${r}.md`),d=`
+${this.settings.outputFolder}/\u5F85\u529E-clean.txt`,6e3)})}async saveMemo(t,e,s){let o=(0,i.normalizePath)(`${this.settings.outputFolder}/\u5907\u5FD8\u5F55`);await this.ensureFolder(o);let n=new Date,r=`${n.getFullYear()}-${w(n.getMonth()+1)}-${w(n.getDate())}`,a=`${w(n.getHours())}:${w(n.getMinutes())}`,u=(0,i.normalizePath)(`${o}/${r}.md`),d=`
 ---
 
 ## \u{1F4AD} ${r} ${a}
