@@ -679,14 +679,14 @@ export default class AudioInboxPlugin extends Plugin {
 		});
 	}
 
-	/** Save a memo entry to 备忘录.md. */
+	/** Save a memo entry — one file per day for easy browsing. */
 	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
 		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
-		const np = normalizePath(`${dir}/备忘录.md`);
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+		const np = normalizePath(`${dir}/备忘录-${ds}.md`);
 		const entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n### 📝 AI 总结\n\n${memoContent}\n\n### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
 
 		try {
@@ -695,7 +695,7 @@ export default class AudioInboxPlugin extends Plugin {
 				const oldContent = await this.app.vault.read(ex);
 				await this.app.vault.modify(ex, oldContent + entry);
 			} else {
-				await this.app.vault.create(np, `# 💭 备忘录\n\n> 由 Audio Inbox 自动生成${entry}`);
+				await this.app.vault.create(np, `# 💭 备忘录 — ${ds}\n\n> 由 Audio Inbox 自动生成${entry}`);
 			}
 		} catch (e) {
 			console.error('AudioInbox: saveMemo error', e);
