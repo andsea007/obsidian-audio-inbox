@@ -32,7 +32,7 @@
 | 🧠 **Smart Transcription** | Powered by SiliconFlow SenseVoiceSmall (free tier, works in China without VPN) |
 | 🤖 **AI Summarization** | DeepSeek automatically generates structured notes with summary & to-do list |
 | 📱 **Mobile Support** | Draggable floating action button on iOS/Android, fully functional |
-| 💭 **Memo Mode (New!)** | AI intelligently classifies recordings as reminders or memos. Memos are saved to a dedicated `备忘录.md` file with both AI summary and original transcript |
+| 💭 **Memo Mode** | AI intelligently classifies recordings as reminders or memos. Memos are saved by date (`备忘录-2026-07-01.md`) with both AI summary and original transcript — easy to browse, never too long. |
 | ✅ **Todo Extraction** | Auto-extracts `- [ ]` items from AI summary into a dedicated todo file |
 | 🍎 **Apple Reminders Sync** | Exports clean todo list for iOS Shortcuts integration |
 | 📂 **Batch Processing** | Process pre-recorded audio files in your inbox folder |
