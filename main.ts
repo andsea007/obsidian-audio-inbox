@@ -9,6 +9,7 @@ interface ParsedAI {
 	todos: string[];
 	memo: string;
 	summary: string;
+	title: string;
 }
 
 interface AudioInboxSettings {
@@ -53,6 +54,9 @@ const DEFAULTS: AudioInboxSettings = {
 - 混合：既有备忘又有待办
 
 ## 输出格式（严格按此格式，不要额外说明）
+
+### 标题
+用一句话概括核心内容，不超过10个字。例如"一元线性回归"、"明天下午开会"、"星露谷物语鱼竿"
 
 ### 类型
 [提醒事项 / 备忘录 / 混合]
@@ -343,12 +347,12 @@ export default class AudioInboxPlugin extends Plugin {
 
 			if (parsed.type === "reminder" || parsed.type === "mixed") {
 				if (parsed.todos.length > 0) {
-					await this.saveTodos(parsed.todos);
+					await this.saveTodos(parsed.todos, parsed.title);
 				}
 			}
 			if (parsed.type === "memo" || parsed.type === "mixed") {
 				if (parsed.memo) {
-					await this.saveMemo(transcript, parsed.memo, audioPath);
+					await this.saveMemo(transcript, parsed.memo, audioPath, parsed.title);
 				}
 			}
 
@@ -428,10 +432,10 @@ export default class AudioInboxPlugin extends Plugin {
 				const summary = await this.callAI(txt);
 				const parsed = parseAIResponse(summary);
 				if ((parsed.type === "reminder" || parsed.type === "mixed") && parsed.todos.length > 0) {
-					await this.saveTodos(parsed.todos);
+					await this.saveTodos(parsed.todos, parsed.title);
 				}
 				if ((parsed.type === "memo" || parsed.type === "mixed") && parsed.memo) {
-					await this.saveMemo(txt, parsed.memo, fp);
+					await this.saveMemo(txt, parsed.memo, fp, parsed.title);
 				}
 				// Delete processed audio
 				if (this.settings.deleteAfterProcess) {
@@ -638,7 +642,7 @@ export default class AudioInboxPlugin extends Plugin {
 		await this.app.vault.create(np, c);
 	}
 
-	private async saveTodos(todos: string[]) {
+	private async saveTodos(todos: string[], title: string) {
 		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
 
 		const dir = normalizePath(this.settings.outputFolder);
@@ -647,9 +651,8 @@ export default class AudioInboxPlugin extends Plugin {
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const firstTodo = todos.find(t => !t.includes("无"))?.replace(/^- \[ \] /, "").trim();
-		const slug = firstTodo ? slugFromContent(firstTodo, 18) : "";
-		const fn = slug ? `${ds}-待办-${slug}.md` : `待办-${ds}.md`;
+		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
+		const fn = safeTitle ? `${ds}-待办-${safeTitle}.md` : `待办-${ds}.md`;
 		const np = normalizePath(`${dir}/${fn}`);
 
 		let entry = `\n## 🎤 ${ds} ${ts}\n`;
@@ -712,14 +715,14 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	/** Save a memo entry — one file per day. Uses adapter for mobile reliability. */
-	private async saveMemo(transcript: string, memoContent: string, audioPath: string) {
+	private async saveMemo(transcript: string, memoContent: string, audioPath: string, title: string) {
 		const dir = normalizePath(this.settings.outputFolder);
 		await this.ensureFolder(dir);
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const slug = slugFromContent(memoContent, 18);
-		const fn = slug ? `${ds}-${slug}.md` : `备忘-${ds}.md`;
+		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
+		const fn = safeTitle ? `${ds}-${safeTitle}.md` : `备忘-${ds}.md`;
 		const np = normalizePath(`${dir}/${fn}`);
 		const entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n### 📝 AI 总结\n\n${memoContent}\n\n### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
 
@@ -779,14 +782,19 @@ function parseAIResponse(text: string): ParsedAI {
 	const todos: string[] = [];
 	let memo = "";
 	let summary = "";
+	let title = "";
 
-	let currentSection: "type" | "summary" | "todos" | "memo" | null = null;
+	let currentSection: "type" | "title" | "summary" | "todos" | "memo" | null = null;
 
 	for (const line of lines) {
 		const trimmed = line.trim();
 
 		// Detect section headers — accept both ### and ##
 		// IMPORTANT: no emoji in regex patterns (causes match failures in some JS engines)
+		if (/^#{2,3}\s*标题/i.test(trimmed)) {
+			currentSection = "title";
+			continue;
+		}
 		if (/^#{2,3}\s*类型/i.test(trimmed)) {
 			currentSection = "type";
 			continue;
@@ -805,7 +813,9 @@ function parseAIResponse(text: string): ParsedAI {
 		}
 
 		// Extract content based on current section
-		if (currentSection === "type" && trimmed) {
+		if (currentSection === "title" && trimmed) {
+			title = trimmed.substring(0, 10);
+		} else if (currentSection === "type" && trimmed) {
 			if (trimmed.includes("提醒")) type = "reminder";
 			else if (trimmed.includes("备忘")) type = "memo";
 			else if (trimmed.includes("混合")) type = "mixed";
@@ -844,7 +854,7 @@ function parseAIResponse(text: string): ParsedAI {
 		memo = summary;
 	}
 
-	return { type, todos, memo: memo.trim(), summary: summary.trim() };
+	return { type, todos, memo: memo.trim(), summary: summary.trim(), title };
 }
 
 // ==================== SETTINGS TAB ====================
