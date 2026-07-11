@@ -647,7 +647,10 @@ export default class AudioInboxPlugin extends Plugin {
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const np = normalizePath(`${dir}/待办-${ds}.md`);
+		const firstTodo = todos.find(t => !t.includes("无"))?.replace(/^- \[ \] /, "").trim();
+		const slug = firstTodo ? slugFromContent(firstTodo, 18) : "";
+		const fn = slug ? `${ds}-待办-${slug}.md` : `待办-${ds}.md`;
+		const np = normalizePath(`${dir}/${fn}`);
 
 		let entry = `\n## 🎤 ${ds} ${ts}\n`;
 		for (const t of todos) {
@@ -715,7 +718,9 @@ export default class AudioInboxPlugin extends Plugin {
 		const now = new Date();
 		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const np = normalizePath(`${dir}/备忘-${ds}.md`);
+		const slug = slugFromContent(memoContent, 18);
+		const fn = slug ? `${ds}-${slug}.md` : `备忘-${ds}.md`;
+		const np = normalizePath(`${dir}/${fn}`);
 		const entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n### 📝 AI 总结\n\n${memoContent}\n\n### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
 
 		try {
@@ -899,3 +904,14 @@ class AudioInboxSettingTab extends PluginSettingTab {
 function pad(n: number): string { return n.toString().padStart(2, "0"); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtTime(d: Date) { return `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`; }
+
+/** Extract a short, safe filename slug from content. */
+function slugFromContent(text: string, maxLen: number): string {
+	const line = text.split("\n").map(l => l.replace(/^[-*\d.]+\s*/, "").trim()).find(l => l.length > 1);
+	if (!line) return "";
+	return line
+		.replace(/[\\/:*?"<>|]/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.substring(0, maxLen);
+}
