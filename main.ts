@@ -621,120 +621,42 @@ export default class AudioInboxPlugin extends Plugin {
 		return json.choices?.[0]?.message?.content || "";
 	}
 
-	private async saveNote(audioPath: string, transcript: string, summary: string) {
-		const dir = normalizePath(this.settings.outputFolder);
-		await this.ensureFolder(dir);
+	// ===== SAVE: 四级目录 — VoiceNotes/月/日/单文件 =====
 
-		const now = new Date();
-		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const timeFile = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
-
-		let c = `# 🎤 语音笔记 — ${ds} ${ts}\n\n---\n\n${summary}\n\n---\n`;
-		c += `> 📁 [[${audioPath}|录音文件]]\n> 🕐 ${ds} ${ts}\n\n`;
-		if (this.settings.showTranscript) {
-			c += `<details>\n<summary>📝 原始文本</summary>\n\n${transcript}\n\n</details>\n\n`;
-		}
-		c += `---\n*Audio Inbox 生成*\n`;
-
-		// Each recording = separate file (not appended to daily)
-		const np = normalizePath(`${dir}/语音笔记-${ds}-${timeFile}.md`);
-		await this.app.vault.create(np, c);
-	}
-
-	private async saveTodos(todos: string[], title: string) {
-		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
-
-		const dir = normalizePath(this.settings.outputFolder);
-		await this.ensureFolder(dir);
-
-		const now = new Date();
-		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
-		const fn = safeTitle ? `${ds}-待办-${safeTitle}.md` : `待办-${ds}.md`;
-		const np = normalizePath(`${dir}/${fn}`);
-
-		let entry = `\n## 🎤 ${ds} ${ts}\n`;
-		for (const t of todos) {
-			entry += `${t}\n`;
-		}
-
-		try {
-			const adapter = this.app.vault.adapter;
-			const exists = await adapter.exists(np);
-			if (exists) {
-				const old = await adapter.read(np);
-				await adapter.write(np, old + entry);
-			} else {
-				await adapter.write(np, `# ✅ 待办事项 — ${ds}\n\n> 由 Audio Inbox 自动生成\n${entry}`);
-			}
-		} catch (e) {
-			console.error('AudioInbox: saveTodos error', e);
-		}
-
-		// Also save clean file for iOS Shortcut: no prefix, one task per line
-		// Each new recording OVERWRITES the file (not append) to prevent duplicates
-		const cp = normalizePath(`${dir}/待办-clean.txt`);
-		const clean: string[] = [];
-		for (const t of todos) {
-			const s = t.replace(/^- \[ \] /, "").trim();
-			if (s && s !== "无") clean.push(s);
-		}
-		console.log(`AudioInbox: clean todos (${clean.length}):`, clean);
-
-		if (clean.length > 0) {
-			// Overwrite vault file (not append) — prevents duplicate reminders
-			const cleanContent = clean.join("\n");
-			const cf = this.app.vault.getAbstractFileByPath(cp);
-			if (cf instanceof TFile) {
-				await this.app.vault.modify(cf, cleanContent);
-				console.log(`AudioInbox: Updated vault ${cp} (${cleanContent.length} chars)`);
-			} else {
-				await this.app.vault.create(cp, cleanContent);
-				console.log(`AudioInbox: Created vault ${cp} (${cleanContent.length} chars)`);
-			}
-
-			// Also copy to clipboard for iOS Shortcuts sync
-			this.saveToShortcutsFolder(cleanContent);
-		} else {
-			console.log('AudioInbox: No clean todos to save (all empty or "无")');
-		}
-	}
-
-	/** Copy clean todos to clipboard for iOS Shortcuts sync.
-	 *  The vault file (待办-clean.txt) is already saved by saveTodos(). */
-	private saveToShortcutsFolder(content: string) {
-		void navigator.clipboard.writeText(content).then(() => {
-			console.log('AudioInbox: Copied todos to clipboard');
-			new Notice(`✅ 待办已同步\n📋 已复制到剪贴板`);
-		}).catch((e: unknown) => {
-			console.warn('AudioInbox: Clipboard write failed:', e);
-			new Notice(`⚠️ 剪贴板写入失败，但待办已保存到\n${this.settings.outputFolder}/待办-clean.txt`, 6000);
-		});
-	}
-
-	/** Save a memo entry — one file per day. Uses adapter for mobile reliability. */
+	/** Save a single memo as an independent file under VoiceNotes/YYYY-MM/YYYY-MM-DD/ */
 	private async saveMemo(transcript: string, memoContent: string, audioPath: string, title: string) {
-		const dir = normalizePath(this.settings.outputFolder);
+		const { dir, ds, ts, timeSlug } = this.datePath();
 		await this.ensureFolder(dir);
-		const now = new Date();
-		const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-		const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
-		const fn = safeTitle ? `${ds}-${safeTitle}.md` : `备忘-${ds}.md`;
-		const np = normalizePath(`${dir}/${fn}`);
-		const entry = `\n---\n\n## 💭 ${ds} ${ts}\n\n### 📝 AI 总结\n\n${memoContent}\n\n### 🗣️ 原话\n\n> ${transcript.replace(/\n/g, "\n> ")}\n`;
+
+		let fn = safeTitle ? `${safeTitle}.md` : `备忘.md`;
+		let np = normalizePath(`${dir}/${fn}`);
+
+		const content = [
+			`# 💭 ${safeTitle || '备忘'}`,
+			``,
+			`> 🕐 ${ds} ${ts}`,
+			``,
+			`---`,
+			``,
+			`### 📝 AI 总结`,
+			``,
+			memoContent,
+			``,
+			`### 🗣️ 原话`,
+			``,
+			`> ${transcript.replace(/\n/g, "\n> ")}`,
+			``,
+		].join("\n");
 
 		try {
 			const adapter = this.app.vault.adapter;
-			const exists = await adapter.exists(np);
-			if (exists) {
-				const old = await adapter.read(np);
-				await adapter.write(np, old + entry);
-			} else {
-				await adapter.write(np, `# 💭 备忘录 — ${ds}\n\n> 由 Audio Inbox 自动生成${entry}`);
+			if (await adapter.exists(np)) {
+				fn = safeTitle ? `${safeTitle}-${timeSlug}.md` : `备忘-${timeSlug}.md`;
+				np = normalizePath(`${dir}/${fn}`);
 			}
+			await adapter.write(np, content);
+			console.log(`AudioInbox: saved memo → ${np}`);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error('AudioInbox: saveMemo error', e);
@@ -742,29 +664,129 @@ export default class AudioInboxPlugin extends Plugin {
 		}
 	}
 
-	/** Mark all `- [ ]` in 待办事项.md as `- [x]` and clear 待办-clean.txt */
-	private async markTodosDone() {
-		const dir = normalizePath(this.settings.outputFolder);
-		const todoPath = normalizePath(`${dir}/待办事项.md`);
-		const cleanPath = normalizePath(`${dir}/待办-clean.txt`);
+	/** Save todo items as a single file under VoiceNotes/YYYY-MM/YYYY-MM-DD/ */
+	private async saveTodos(todos: string[], title: string) {
+		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
 
-		// 1. Replace all unchecked todos with checked in 待办事项.md
-		const todoFile = this.app.vault.getAbstractFileByPath(todoPath);
-		if (todoFile instanceof TFile) {
-			const content = await this.app.vault.read(todoFile);
-			const updated = content.replace(/^- \[ \] /gm, "- [x] ");
-			if (updated !== content) {
-				await this.app.vault.modify(todoFile, updated);
+		const { dir, ds, ts, timeSlug } = this.datePath();
+		await this.ensureFolder(dir);
+		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
+
+		let fn = safeTitle ? `待办-${safeTitle}.md` : `待办.md`;
+		let np = normalizePath(`${dir}/${fn}`);
+
+		const content = [
+			`# 📌 ${safeTitle || '待办事项'}`,
+			``,
+			`> 🕐 ${ds} ${ts}`,
+			``,
+			`---`,
+			``,
+			todos.join("\n"),
+			``,
+		].join("\n");
+
+		try {
+			const adapter = this.app.vault.adapter;
+			if (await adapter.exists(np)) {
+				fn = safeTitle ? `待办-${safeTitle}-${timeSlug}.md` : `待办-${timeSlug}.md`;
+				np = normalizePath(`${dir}/${fn}`);
 			}
+			await adapter.write(np, content);
+			console.log(`AudioInbox: saved todo → ${np}`);
+		} catch (e) {
+			console.error('AudioInbox: saveTodos error', e);
 		}
 
-		// 2. Clear 待办-clean.txt
-		const cleanFile = this.app.vault.getAbstractFileByPath(cleanPath);
-		if (cleanFile instanceof TFile) {
-			await this.app.vault.modify(cleanFile, "");
+		// Sync to clean.txt (append + dedup) and clipboard for iOS Shortcuts
+		const clean: string[] = [];
+		for (const t of todos) {
+			const s = t.replace(/^- \[ \] /, "").trim();
+			if (s && s !== "无") clean.push(s);
+		}
+		if (clean.length > 0) {
+			this.syncCleanTodos(clean);
+		}
+	}
+
+	/** Compute the date-based folder path: VoiceNotes/YYYY-MM/YYYY-MM-DD */
+	private datePath() {
+		const now = new Date();
+		const y = now.getFullYear();
+		const mo = pad(now.getMonth() + 1);
+		const d = pad(now.getDate());
+		const hh = pad(now.getHours());
+		const mm = pad(now.getMinutes());
+		const ds = `${y}-${mo}-${d}`;
+		const ts = `${hh}:${mm}`;
+		const timeSlug = `${hh}${mm}`;
+		const dir = normalizePath(`${this.settings.outputFolder}/${y}-${mo}/${ds}`);
+		return { dir, ds, ts, timeSlug };
+	}
+
+	/** Maintain VoiceNotes/待办-clean.txt — append new tasks, dedup */
+	private async syncCleanTodos(tasks: string[]) {
+		const cp = normalizePath(`${this.settings.outputFolder}/待办-clean.txt`);
+		try {
+			const adapter = this.app.vault.adapter;
+			const existing = new Set<string>();
+			if (await adapter.exists(cp)) {
+				const old = await adapter.read(cp);
+				old.split("\n").forEach(l => { const t2 = l.trim(); if (t2) existing.add(t2); });
+			}
+			const newTasks = tasks.filter(t => !existing.has(t));
+			if (newTasks.length > 0) {
+				await adapter.write(cp, [...existing, ...newTasks].join("\n"));
+				console.log(`AudioInbox: clean.txt +${newTasks.length} tasks`);
+			}
+			void navigator.clipboard.writeText([...existing, ...newTasks].join("\n"));
+		} catch (e) {
+			console.warn('AudioInbox: syncCleanTodos error', e);
+		}
+	}
+
+	/** Recursively mark all pending todos as done and clear clean.txt */
+	private async markTodosDone() {
+		const baseDir = normalizePath(this.settings.outputFolder);
+		const cleanPath = normalizePath(`${baseDir}/待办-clean.txt`);
+		let marked = 0;
+
+		// Walk month → date folders scanning for 待办-*.md files
+		try {
+			const adapter = this.app.vault.adapter;
+			if (!(await adapter.exists(baseDir))) return;
+
+			const monthList = await adapter.list(baseDir);
+			for (const monthItem of monthList.folders) {
+				const dateList = await adapter.list(monthItem);
+				for (const dateItem of dateList.folders) {
+					const fileList = await adapter.list(dateItem);
+					for (const fp of fileList.files) {
+						const fn = fp.split("/").pop() || "";
+						if (!fn.startsWith("待办-") || !fn.endsWith(".md")) continue;
+						const f = this.app.vault.getAbstractFileByPath(fp);
+						if (f instanceof TFile) {
+							const old = await this.app.vault.read(f);
+							const updated = old.replace(/^- \[ \] /gm, "- [x] ");
+							if (updated !== old) {
+								await this.app.vault.modify(f, updated);
+								marked++;
+							}
+						}
+					}
+				}
+			}
+		} catch (e) {
+			console.error('AudioInbox: markTodosDone scan error', e);
 		}
 
-		new Notice("✅ 已同步的待办已标记为完成，待办文件已清空");
+		// Clear clean.txt
+		const cf = this.app.vault.getAbstractFileByPath(cleanPath);
+		if (cf instanceof TFile) {
+			await this.app.vault.modify(cf, "");
+		}
+
+		new Notice(`✅ 已标记 ${marked} 个待办文件为完成`);
 	}
 
 	onunload() {
@@ -917,14 +939,3 @@ class AudioInboxSettingTab extends PluginSettingTab {
 function pad(n: number): string { return n.toString().padStart(2, "0"); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtTime(d: Date) { return `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`; }
-
-/** Extract a short, safe filename slug from content. */
-function slugFromContent(text: string, maxLen: number): string {
-	const line = text.split("\n").map(l => l.replace(/^[-*\d.]+\s*/, "").trim()).find(l => l.length > 1);
-	if (!line) return "";
-	return line
-		.replace(/[\\/:*?"<>|]/g, "")
-		.replace(/\s+/g, " ")
-		.trim()
-		.substring(0, maxLen);
-}
