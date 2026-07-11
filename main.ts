@@ -85,7 +85,7 @@ class RecordModal extends Modal {
 	private timerId: number | null = null;
 	private isFinished = false;
 	private mimeType = "";
-	private timerEl!: HTMLElement;
+	private timerEl!: HTMLSpanElement;
 
 	constructor(app: App, resolve: (blob: Blob | null) => void) {
 		super(app);
@@ -205,19 +205,19 @@ export default class AudioInboxPlugin extends Plugin {
 
 		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
 		const svgns = "http://www.w3.org/2000/svg";
-		const svg = document.createElementNS(svgns, "svg");
+		const svg = activeDocument.createElementNS(svgns, "svg");
 		svg.setAttribute("width", "40"); svg.setAttribute("height", "40");
 		svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
 		svg.setAttribute("stroke", "#fff"); svg.setAttribute("stroke-width", "1.5");
 		svg.setAttribute("stroke-linecap", "round");
 		[4, 7, 10].forEach((r, i) => {
-			const c = document.createElementNS(svgns, "circle");
+			const c = activeDocument.createElementNS(svgns, "circle");
 			c.setAttribute("cx", "12"); c.setAttribute("cy", "12");
 			c.setAttribute("r", String(r));
 			c.setAttribute("opacity", String([0.55, 0.35, 0.18][i]));
 			svg.appendChild(c);
 		});
-		const dot = document.createElementNS(svgns, "circle");
+		const dot = activeDocument.createElementNS(svgns, "circle");
 		dot.setAttribute("cx", "12"); dot.setAttribute("cy", "12");
 		dot.setAttribute("r", "3"); dot.setAttribute("fill", "#fff");
 		dot.setAttribute("stroke", "none"); svg.appendChild(dot);
@@ -629,7 +629,7 @@ export default class AudioInboxPlugin extends Plugin {
 		await this.ensureFolder(dir);
 		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
 
-		let fn = safeTitle ? `${safeTitle}.md` : `备忘.md`;
+		let fn = safeTitle ? `备忘-${safeTitle}.md` : `备忘.md`;
 		let np = normalizePath(`${dir}/${fn}`);
 
 		const content = [
@@ -652,7 +652,7 @@ export default class AudioInboxPlugin extends Plugin {
 		try {
 			const adapter = this.app.vault.adapter;
 			if (await adapter.exists(np)) {
-				fn = safeTitle ? `${safeTitle}-${timeSlug}.md` : `备忘-${timeSlug}.md`;
+				fn = safeTitle ? `备忘-${safeTitle}-${timeSlug}.md` : `备忘-${timeSlug}.md`;
 				np = normalizePath(`${dir}/${fn}`);
 			}
 			await adapter.write(np, content);
