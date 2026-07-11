@@ -793,6 +793,9 @@ function parseAIResponse(text: string): ParsedAI {
 		// IMPORTANT: no emoji in regex patterns (causes match failures in some JS engines)
 		if (/^#{2,3}\s*标题/i.test(trimmed)) {
 			currentSection = "title";
+			// Also extract title if it's on the same line (e.g., "### 标题：一元线性回归")
+			const inlineAfter = trimmed.replace(/^#{2,3}\s*标题[:：\s]*/i, "").trim();
+			if (inlineAfter && !title) title = inlineAfter.substring(0, 10);
 			continue;
 		}
 		if (/^#{2,3}\s*类型/i.test(trimmed)) {
@@ -813,7 +816,7 @@ function parseAIResponse(text: string): ParsedAI {
 		}
 
 		// Extract content based on current section
-		if (currentSection === "title" && trimmed) {
+		if (currentSection === "title" && trimmed && !title) {
 			title = trimmed.substring(0, 10);
 		} else if (currentSection === "type" && trimmed) {
 			if (trimmed.includes("提醒")) type = "reminder";
