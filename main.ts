@@ -137,8 +137,10 @@ class RecordModal extends Modal {
 		this.startTime = Date.now();
 		this.timerId = window.setInterval(() => {
 			const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-			const m = Math.floor(elapsed / 60).toString().padStart(2, "0");
-			const s = (elapsed % 60).toString().padStart(2, "0");
+			const elapsedMin: number = Math.floor(elapsed / 60);
+			const elapsedSec: number = elapsed % 60;
+			const m: string = elapsedMin.toString().padStart(2, "0");
+			const s: string = elapsedSec.toString().padStart(2, "0");
 			this.timerEl.setText(`${m}:${s}`);
 		}, 200);
 
@@ -936,6 +938,6 @@ class AudioInboxSettingTab extends PluginSettingTab {
 	}
 }
 
-function pad(n: number): string { return n.toString().padStart(2, "0"); }
+function pad(n: number): string { const s: string = n.toString(); return s.padStart(2, "0"); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtTime(d: Date) { return `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`; }
