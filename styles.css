@@ -28,6 +28,23 @@
 	font-size: 2em;
 	font-weight: 700;
 }
+.ai-modal-timer-warn {
+	color: #e9a23b;
+}
+.ai-modal-timer-limit {
+	color: #e5484d;
+}
+
+.ai-modal-warn {
+	min-height: 1.2em;
+	margin: 4px 0 12px;
+	font-size: 0.95em;
+	color: var(--text-muted);
+}
+.ai-modal-warn-active {
+	color: #e9a23b;
+	font-weight: 600;
+}
 
 .ai-modal-label {
 	font-size: 0.95em;

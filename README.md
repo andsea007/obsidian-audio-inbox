@@ -87,7 +87,7 @@ You need **two API keys** (both are domestic China services, no VPN needed):
 - **Mobile**: Tap the floating red button (drag it to reposition)
 - **Command Palette**: `Ctrl/Cmd + P` → "开始语音笔记（录音）"
 
-> ⏱️ **建议录音时长控制在 5 分钟以内**，以获得最佳的语音识别准确率和 AI 总结效果。过长的录音可能影响 STT 识别质量。
+> ⏱️ **建议单条录音不超过 4 分钟**：语音识别模型 SenseVoiceSmall 对短语音最稳定，实测超过 5 分钟容易出现转写/总结失败。插件会在到达上限前 1 分钟提醒，并默认自动结束录音（可在设置中调整上限或关闭自动结束）。
 
 ### Workflow
 
@@ -145,10 +145,13 @@ After each voice recording, the plugin copies your clean todo list to the clipbo
 | DeepSeek API Key | — | DeepSeek API Key |
 | API URL | `https://api.deepseek.com/v1/chat/completions` | AI endpoint |
 | Model | `deepseek-chat` | AI model |
-| Summary Prompt | *(built-in)* | Customizable AI prompt |
+| Max Recording Duration | `4` | Minutes; safe limit for SenseVoiceSmall (5+ min can fail to transcribe). `0` = unlimited |
+| Auto-stop on limit | `true` | End recording automatically at the limit; disable to only warn |
+| Summary Prompt | *(built-in)* | Customizable AI prompt — edits persist across restarts, previous versions saved to history |
 | Recording Folder | `录音` | Where audio files are saved |
 | Output Folder | `VoiceNotes` | Where notes are saved |
 | Show Transcript | `false` | Include raw transcript in note |
+| Delete After Process | `true` | Remove audio file after successful transcription |
 
 ## 🔧 Development
 
