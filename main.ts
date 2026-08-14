@@ -56,7 +56,9 @@ const DEFAULTS: AudioInboxSettings = {
 ## 输出格式（严格按此格式，不要额外说明）
 
 ### 标题
-用一句话概括核心内容，不超过10个字。例如"一元线性回归"、"明天下午开会"、"星露谷物语鱼竿"
+提取一个简洁主题词（≤10字）。必须是内容的语义概括，**禁止**包含任何日期、时间、星期、数字编号、钟点。
+正确示例："一元线性回归"、"明天开会讨论"、"星露谷鱼竿"
+错误示例："2026-07-11"、"下午三点"、"18:30"、"周三"
 
 ### 类型
 [提醒事项 / 备忘录 / 混合]
@@ -879,6 +881,18 @@ function parseAIResponse(text: string): ParsedAI {
 	// If type is memo/mixed but memo is empty, use summary as memo content
 	if ((type === "memo" || type === "mixed") && !memo.trim() && summary.trim()) {
 		memo = summary;
+	}
+
+	// Sanitize title: reject timestamps, dates, pure numbers
+	if (title && /^\d{1,2}[：:]\d{2}$|^\d{4}-\d{2}-\d{2}$|^\d{1,2}点|^周[一二三四五六日]|^星期|^[上下]午/.test(title)) {
+		title = "";
+	}
+	// If title is empty or bad, extract the first meaningful sentence from summary
+	if (!title && summary.trim()) {
+		const firstLine = summary.trim().split("\n")[0].replace(/^[-*\d.]+\s*/, "").replace(/[\\/:*?"<>|]/g, "").trim();
+		if (firstLine.length > 1) {
+			title = firstLine.substring(0, 10);
+		}
 	}
 
 	return { type, todos, memo: memo.trim(), summary: summary.trim(), title };
