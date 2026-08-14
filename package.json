@@ -1,6 +1,6 @@
 {
   "name": "obsidian-audio-inbox",
-  "version": "2.0.0",
+  "version": "2.5.5",
   "description": "One-click voice recording → Speech-to-Text → AI summarization for Obsidian (desktop & mobile)",
   "main": "main.js",
   "scripts": {
