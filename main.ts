@@ -1,4 +1,4 @@
-import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal, Platform, TextAreaComponent, DropdownComponent } from "obsidian";
+import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal, Platform, TextAreaComponent, DropdownComponent, ButtonComponent, SettingDefinitionItem } from "obsidian";
 
 // ==================== TYPES ====================
 
@@ -161,8 +161,8 @@ class RecordModal extends Modal {
 			const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
 			const elapsedMin: number = Math.floor(elapsed / 60);
 			const elapsedSec: number = elapsed % 60;
-			const m: string = elapsedMin.toString().padStart(2, "0");
-			const s: string = elapsedSec.toString().padStart(2, "0");
+			const m: string = (elapsedMin < 10 ? "0" : "") + String(elapsedMin);
+			const s: string = (elapsedSec < 10 ? "0" : "") + String(elapsedSec);
 			this.timerEl.setText(`${m}:${s}`);
 
 			if (this.maxDurationSec > 0 && !this.isFinished && !this.autoStopped) {
@@ -360,7 +360,6 @@ export default class AudioInboxPlugin extends Plugin {
 			this.settings.summaryPrompt = DEFAULTS.summaryPrompt;
 			this.settings.promptVersion = 1;
 			await this.saveSettings();
-			console.log("AudioInbox: Migrated legacy summaryPrompt to new format (one-time)");
 		}
 		// Auto-migrate: if deleteAfterProcess not set, default to true
 		if (saved && saved.deleteAfterProcess === undefined) {
@@ -391,7 +390,6 @@ export default class AudioInboxPlugin extends Plugin {
 
 		this.isBusy = true;
 		const statusEl = this.addStatusBarItem();
-		const flowStartTime = Date.now();
 
 		try {
 			// 1. Record
@@ -423,7 +421,6 @@ export default class AudioInboxPlugin extends Plugin {
 			// 4. AI summarize
 			statusEl.setText("📝 AI 总结...");
 			const summary = await this.callAI(transcript);
-			console.log('AudioInbox: AI response:', summary.substring(0, 300));
 
 			// 5. Parse AI response — save to memo/todo only
 			const parsed = parseAIResponse(summary);
@@ -444,7 +441,6 @@ export default class AudioInboxPlugin extends Plugin {
 				try {
 					const af = this.app.vault.getAbstractFileByPath(audioPath);
 					if (af instanceof TFile) await this.app.fileManager.trashFile(af);
-					console.log(`AudioInbox: Deleted audio ${audioPath}`);
 				} catch (e) {
 					console.warn('AudioInbox: Could not delete audio file:', e);
 				}
@@ -463,7 +459,6 @@ export default class AudioInboxPlugin extends Plugin {
 			console.error(err);
 		} finally {
 			this.isBusy = false;
-			console.log(`AudioInbox: Flow completed in ${Date.now() - flowStartTime}ms`);
 		}
 	}
 
@@ -584,7 +579,6 @@ export default class AudioInboxPlugin extends Plugin {
 		const boundary = "----AiInbox" + Math.random().toString(36).slice(2);
 		const enc = new TextEncoder();
 		const buf = await finalBlob.arrayBuffer();
-		const sizeKB = Math.round(buf.byteLength / 1024);
 
 		const parts: Uint8Array[] = [];
 		const line = (s: string) => parts.push(enc.encode(s));
@@ -610,8 +604,6 @@ export default class AudioInboxPlugin extends Plugin {
 		let off = 0;
 		for (const p of parts) { body.set(p, off); off += p.length; }
 
-		console.log(`AudioInbox: Sending STT request (${sizeKB}KB, ${finalExt}), API: ${this.settings.sttApiUrl}`);
-
 		const resp = await requestUrl({
 			url: this.settings.sttApiUrl,
 			method: "POST",
@@ -621,8 +613,6 @@ export default class AudioInboxPlugin extends Plugin {
 			},
 			body: body.buffer,
 		});
-
-		console.log(`AudioInbox: STT response status=${resp.status}, contentType=${resp.headers?.["content-type"] || "?"}`);
 
 		if (resp.status !== 200) {
 			const errStr: string = resp.text || (resp.json ? JSON.stringify(resp.json) : "");
@@ -641,7 +631,6 @@ export default class AudioInboxPlugin extends Plugin {
 
 		// response_format=text => API returns plain text
 		const result: string = resp.text || "";
-		console.log(`AudioInbox: STT result length=${result.length}, preview="${result.substring(0, 80)}"`);
 		return result;
 	}
 
@@ -739,7 +728,6 @@ export default class AudioInboxPlugin extends Plugin {
 				np = normalizePath(`${dir}/${fn}`);
 			}
 			await adapter.write(np, content);
-			console.log(`AudioInbox: saved memo → ${np}`);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error('AudioInbox: saveMemo error', e);
@@ -749,8 +737,6 @@ export default class AudioInboxPlugin extends Plugin {
 
 	/** Save todo items as a single file under VoiceNotes/YYYY-MM/YYYY-MM-DD/ */
 	private async saveTodos(todos: string[], title: string) {
-		console.log(`AudioInbox: saveTodos called with ${todos.length} items:`, todos);
-
 		const { dir, ds, ts, timeSlug } = this.datePath();
 		await this.ensureFolder(dir);
 		const safeTitle = title ? title.replace(/[\\/:*?"<>|]/g, "").trim() : "";
@@ -776,7 +762,6 @@ export default class AudioInboxPlugin extends Plugin {
 				np = normalizePath(`${dir}/${fn}`);
 			}
 			await adapter.write(np, content);
-			console.log(`AudioInbox: saved todo → ${np}`);
 		} catch (e) {
 			console.error('AudioInbox: saveTodos error', e);
 		}
@@ -788,7 +773,7 @@ export default class AudioInboxPlugin extends Plugin {
 			if (s && s !== "无") clean.push(s);
 		}
 		if (clean.length > 0) {
-			this.syncCleanTodos(clean);
+			void this.syncCleanTodos(clean);
 		}
 	}
 
@@ -820,7 +805,6 @@ export default class AudioInboxPlugin extends Plugin {
 			const newTasks = tasks.filter(t => !existing.has(t));
 			if (newTasks.length > 0) {
 				await adapter.write(cp, [...existing, ...newTasks].join("\n"));
-				console.log(`AudioInbox: clean.txt +${newTasks.length} tasks`);
 			}
 			void navigator.clipboard.writeText([...existing, ...newTasks].join("\n"));
 		} catch (e) {
@@ -1045,72 +1029,27 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			t.setValue(this.plugin.settings.aiApiUrl).onChange(async v => { this.plugin.settings.aiApiUrl = v; await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("模型").addText(t =>
 			t.setValue(this.plugin.settings.aiModel).onChange(async v => { this.plugin.settings.aiModel = v; await this.plugin.saveSettings(); }));
-		// Prompt editor — custom prompts persist in data.json and previous
-		// versions are kept in history so users can freely edit & restore.
-		let lastFocusedPrompt = "";
 		new Setting(containerEl)
 			.setName("总结指令（提示词）")
 			.setDesc("可自由编辑，改动会自动保存，重启不会丢失；编辑前的旧版本会自动存入下方历史。")
-			.addTextArea(t => {
-				this.promptText = t;
-				t.setValue(this.plugin.settings.summaryPrompt);
-				t.inputEl.rows = 14;
-				t.inputEl.addEventListener("focus", () => { lastFocusedPrompt = t.getValue(); });
-				t.inputEl.addEventListener("blur", () => {
-					const cur = t.getValue();
-					if (lastFocusedPrompt.trim() && cur.trim() !== lastFocusedPrompt.trim()) {
-						void this.plugin.pushPromptHistory(lastFocusedPrompt);
-						this.refreshHistoryDropdown();
-					}
-				});
-				t.onChange(async v => { this.plugin.settings.summaryPrompt = v; await this.plugin.saveSettings(); });
-			});
+			.addTextArea(t => { this.bindPromptEditor(t); });
 
 		new Setting(containerEl)
 			.setName("保存当前提示词到历史")
 			.setDesc("手动把当前正在使用的提示词存一份副本，方便以后切换回来。")
-			.addButton(b => b.setButtonText("保存到历史").onClick(async () => {
-				const cur = this.plugin.settings.summaryPrompt || "";
-				if (!cur.trim()) { new Notice("⚠️ 提示词为空，无需保存"); return; }
-				await this.plugin.pushPromptHistory(cur);
-				this.refreshHistoryDropdown();
-				new Notice("✅ 已保存到提示词历史");
-			}));
+			.addButton(b => this.bindSaveButton(b));
 
 		new Setting(containerEl)
 			.setName("恢复默认提示词")
 			.setDesc("恢复插件内置默认提示词；当前提示词会自动存入历史。")
-			.addButton(b => b.setButtonText("恢复默认").onClick(async () => {
-				const cur = this.plugin.settings.summaryPrompt || "";
-				if (cur.trim() && cur !== DEFAULTS.summaryPrompt) await this.plugin.pushPromptHistory(cur);
-				this.plugin.settings.summaryPrompt = DEFAULTS.summaryPrompt;
-				await this.plugin.saveSettings();
-				this.promptText?.setValue(DEFAULTS.summaryPrompt);
-				this.refreshHistoryDropdown();
-				new Notice("✅ 已恢复默认提示词");
-			}));
+			.addButton(b => this.bindRestoreButton(b));
 
 		const hist = this.plugin.settings.promptHistory || [];
 		if (hist.length > 0) {
 			new Setting(containerEl)
 				.setName("提示词历史")
 				.setDesc("选择一条历史提示词恢复使用；最多保留 20 条，最近使用在前。")
-				.addDropdown(dd => {
-					this.histDropdown = dd;
-					dd.addOption("", "— 选择历史提示词 —");
-					hist.forEach((p, idx) => dd.addOption(String(idx), this.historyLabel(p, idx, hist.length)));
-					dd.onChange(async v => {
-						if (v === "") return;
-						const idx = Number(v);
-						const p = (this.plugin.settings.promptHistory || [])[idx];
-						dd.setValue("");
-						if (p === undefined) return;
-						this.plugin.settings.summaryPrompt = p;
-						await this.plugin.saveSettings();
-						this.promptText?.setValue(p);
-						new Notice("✅ 已恢复历史提示词");
-					});
-				});
+				.addDropdown(dd => { this.bindHistoryDropdown(dd); });
 		}
 
 		// Output
@@ -1125,9 +1064,251 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			t.setValue(this.plugin.settings.deleteAfterProcess).onChange(async v => { this.plugin.settings.deleteAfterProcess = v; await this.plugin.saveSettings(); }));
 	}
 
+	/**
+	 * Declarative settings for Obsidian 1.13+ (powers settings search and
+	 * renders the tab). display() remains as the fallback for older versions.
+	 */
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const plugin = this.plugin;
+		return [
+			{
+				name: "最长录音时长（分钟）",
+				desc: "根据 SenseVoiceSmall 的实际识别能力综合判定，默认 4 分钟（超过 5 分钟易出现转写/总结失败）；设为 0 表示不限制。",
+				aliases: ["录音时长", "录音上限", "maxRecordMinutes"],
+				render: (setting) => {
+					setting.addText(t => {
+						t.inputEl.type = "number";
+						t.inputEl.min = "0";
+						t.inputEl.max = "120";
+						t.inputEl.step = "1";
+						t.setValue(String(plugin.settings.maxRecordMinutes));
+						t.onChange(async v => {
+							const n = parseFloat(v);
+							if (isNaN(n) || n < 0) return;
+							plugin.settings.maxRecordMinutes = Math.min(120, n);
+							await plugin.saveSettings();
+						});
+					});
+				},
+			},
+			{
+				name: "到点自动结束录音",
+				desc: "开启后到达时长上限自动停止录音并进入处理流程；关闭则到点只提醒、不强制停止。",
+				aliases: ["自动结束", "autoStopOnLimit"],
+				render: (setting) => {
+					setting.addToggle(t =>
+						t.setValue(plugin.settings.autoStopOnLimit).onChange(async v => {
+							plugin.settings.autoStopOnLimit = v;
+							await plugin.saveSettings();
+						}));
+				},
+			},
+			{
+				name: "STT API Key",
+				desc: "SiliconFlow 语音转文字 API Key",
+				aliases: ["硅基流动", "sttApiKey"],
+				render: (setting) => {
+					setting.addText(t => {
+						t.setValue(plugin.settings.sttApiKey);
+						t.inputEl.type = "password";
+						t.onChange(async v => { plugin.settings.sttApiKey = v; await plugin.saveSettings(); });
+					});
+				},
+			},
+			{
+				name: "STT API 地址",
+				desc: "硅基流动转写接口地址",
+				aliases: ["sttApiUrl"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.sttApiUrl).onChange(async v => { plugin.settings.sttApiUrl = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "STT 模型",
+				desc: "语音识别模型",
+				aliases: ["sttModel", "SenseVoiceSmall"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.sttModel).onChange(async v => { plugin.settings.sttModel = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "STT 语言 (zh/en)",
+				desc: "语音识别语言代码",
+				aliases: ["sttLanguage"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.sttLanguage).onChange(async v => { plugin.settings.sttLanguage = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "DeepSeek API Key",
+				desc: "DeepSeek 总结 API Key",
+				aliases: ["aiApiKey"],
+				render: (setting) => {
+					setting.addText(t => {
+						t.setValue(plugin.settings.aiApiKey);
+						t.inputEl.type = "password";
+						t.onChange(async v => { plugin.settings.aiApiKey = v; await plugin.saveSettings(); });
+					});
+				},
+			},
+			{
+				name: "AI API 地址",
+				desc: "DeepSeek 接口地址",
+				aliases: ["aiApiUrl"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.aiApiUrl).onChange(async v => { plugin.settings.aiApiUrl = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "AI 模型",
+				desc: "总结所用模型",
+				aliases: ["aiModel", "deepseek-chat"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.aiModel).onChange(async v => { plugin.settings.aiModel = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "总结指令（提示词）",
+				desc: "可自由编辑，改动会自动保存，重启不会丢失；编辑前的旧版本会自动存入历史。",
+				aliases: ["prompt", "提示词", "summaryPrompt"],
+				render: (setting) => {
+					setting.addTextArea(t => { this.bindPromptEditor(t); });
+				},
+			},
+			{
+				name: "保存当前提示词到历史",
+				desc: "手动把当前提示词存一份副本，方便以后切换回来。",
+				aliases: ["提示词历史", "保存提示词"],
+				render: (setting) => {
+					setting.addButton(b => this.bindSaveButton(b));
+				},
+			},
+			{
+				name: "恢复默认提示词",
+				desc: "恢复插件内置默认提示词；当前提示词会自动存入历史。",
+				aliases: ["默认提示词"],
+				render: (setting) => {
+					setting.addButton(b => this.bindRestoreButton(b));
+				},
+			},
+			{
+				name: "提示词历史",
+				desc: "选择一条历史提示词恢复使用；最多保留 20 条，最近使用在前。",
+				aliases: ["history", "历史"],
+				visible: () => (this.plugin.settings.promptHistory || []).length > 0,
+				render: (setting) => {
+					setting.addDropdown(dd => { this.bindHistoryDropdown(dd); });
+				},
+			},
+			{
+				name: "录音保存目录",
+				desc: "录音文件的保存目录",
+				aliases: ["inboxFolder", "录音"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.inboxFolder).onChange(async v => { plugin.settings.inboxFolder = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "笔记输出目录",
+				desc: "笔记归档目录",
+				aliases: ["outputFolder", "VoiceNotes"],
+				render: (setting) => {
+					setting.addText(t =>
+						t.setValue(plugin.settings.outputFolder).onChange(async v => { plugin.settings.outputFolder = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "显示原始文本",
+				desc: "在笔记中包含语音转写原文",
+				aliases: ["showTranscript"],
+				render: (setting) => {
+					setting.addToggle(t =>
+						t.setValue(plugin.settings.showTranscript).onChange(async v => { plugin.settings.showTranscript = v; await plugin.saveSettings(); }));
+				},
+			},
+			{
+				name: "处理后删除录音文件",
+				desc: "转写完成后自动删除原音频，节省空间；关闭则保留录音文件。",
+				aliases: ["deleteAfterProcess", "删除录音"],
+				render: (setting) => {
+					setting.addToggle(t =>
+						t.setValue(plugin.settings.deleteAfterProcess).onChange(async v => { plugin.settings.deleteAfterProcess = v; await plugin.saveSettings(); }));
+				},
+			},
+		];
+	}
+
 	private historyLabel(prompt: string, idx: number, total: number): string {
 		const label = (prompt.replace(/\s+/g, " ").trim().slice(0, 22) || "（空提示词）");
 		return `${total - idx}. ${label}`;
+	}
+
+	private bindPromptEditor(t: TextAreaComponent): void {
+		this.promptText = t;
+		t.setValue(this.plugin.settings.summaryPrompt);
+		t.inputEl.rows = 14;
+		let lastFocusedPrompt = "";
+		t.inputEl.addEventListener("focus", () => { lastFocusedPrompt = t.getValue(); });
+		t.inputEl.addEventListener("blur", () => {
+			const cur = t.getValue();
+			if (lastFocusedPrompt.trim() && cur.trim() !== lastFocusedPrompt.trim()) {
+				void this.plugin.pushPromptHistory(lastFocusedPrompt);
+				this.refreshSettings();
+			}
+		});
+		t.onChange(async v => { this.plugin.settings.summaryPrompt = v; await this.plugin.saveSettings(); });
+	}
+
+	private bindSaveButton(b: ButtonComponent): void {
+		b.setButtonText("保存到历史").onClick(async () => {
+			const cur = this.plugin.settings.summaryPrompt || "";
+			if (!cur.trim()) { new Notice("⚠️ 提示词为空，无需保存"); return; }
+			await this.plugin.pushPromptHistory(cur);
+			this.refreshSettings();
+			new Notice("✅ 已保存到提示词历史");
+		});
+	}
+
+	private bindRestoreButton(b: ButtonComponent): void {
+		b.setButtonText("恢复默认").onClick(async () => {
+			const cur = this.plugin.settings.summaryPrompt || "";
+			if (cur.trim() && cur !== DEFAULTS.summaryPrompt) await this.plugin.pushPromptHistory(cur);
+			this.plugin.settings.summaryPrompt = DEFAULTS.summaryPrompt;
+			await this.plugin.saveSettings();
+			this.promptText?.setValue(DEFAULTS.summaryPrompt);
+			this.refreshSettings();
+			new Notice("✅ 已恢复默认提示词");
+		});
+	}
+
+	private bindHistoryDropdown(dd: DropdownComponent): void {
+		this.histDropdown = dd;
+		dd.addOption("", "— 选择历史提示词 —");
+		const hist = this.plugin.settings.promptHistory || [];
+		hist.forEach((p, idx) => { dd.addOption(String(idx), this.historyLabel(p, idx, hist.length)); });
+		dd.onChange(async v => {
+			if (v === "") return;
+			const idx = Number(v);
+			const p = (this.plugin.settings.promptHistory || [])[idx];
+			dd.setValue("");
+			if (p === undefined) return;
+			this.plugin.settings.summaryPrompt = p;
+			await this.plugin.saveSettings();
+			this.promptText?.setValue(p);
+			new Notice("✅ 已恢复历史提示词");
+		});
+	}
+
+	/** Refresh dynamic dropdown options; on Obsidian 1.13+ also re-render declaratively. */
+	private refreshSettings(): void {
+		this.refreshHistoryDropdown();
+		if (typeof this.update === "function") this.update();
 	}
 
 	private refreshHistoryDropdown(): void {
@@ -1137,11 +1318,11 @@ class AudioInboxSettingTab extends PluginSettingTab {
 		dd.selectEl.empty();
 		dd.addOption("", "— 选择历史提示词 —");
 		const hist = this.plugin.settings.promptHistory || [];
-		hist.forEach((p, idx) => dd.addOption(String(idx), this.historyLabel(p, idx, hist.length)));
+		hist.forEach((p, idx) => { dd.addOption(String(idx), this.historyLabel(p, idx, hist.length)); });
 		dd.setValue(prev);
 	}
 }
 
-function pad(n: number): string { const s: string = n.toString(); return s.padStart(2, "0"); }
+function pad(n: number): string { return n < 10 ? "0" + n : String(n); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtTime(d: Date) { return `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`; }
