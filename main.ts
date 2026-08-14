@@ -1079,7 +1079,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			const cur = t.getValue();
 			if (lastFocusedPrompt.trim() && cur.trim() !== lastFocusedPrompt.trim()) {
 				void this.plugin.pushPromptHistory(lastFocusedPrompt);
-				this.refreshSettings();
+				this.refreshHistoryDropdown();
 			}
 		});
 		t.onChange(async v => { this.plugin.settings.summaryPrompt = v; await this.plugin.saveSettings(); });
@@ -1090,7 +1090,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			const cur = this.plugin.settings.summaryPrompt || "";
 			if (!cur.trim()) { new Notice("⚠️ 提示词为空，无需保存"); return; }
 			await this.plugin.pushPromptHistory(cur);
-			this.refreshSettings();
+			this.refreshHistoryDropdown();
 			new Notice("✅ 已保存到提示词历史");
 		});
 	}
@@ -1102,7 +1102,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			this.plugin.settings.summaryPrompt = DEFAULTS.summaryPrompt;
 			await this.plugin.saveSettings();
 			this.promptText?.setValue(DEFAULTS.summaryPrompt);
-			this.refreshSettings();
+			this.refreshHistoryDropdown();
 			new Notice("✅ 已恢复默认提示词");
 		});
 	}
@@ -1123,12 +1123,6 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			this.promptText?.setValue(p);
 			new Notice("✅ 已恢复历史提示词");
 		});
-	}
-
-	/** Refresh dynamic dropdown options; on Obsidian 1.13+ also re-render declaratively. */
-	private refreshSettings(): void {
-		this.refreshHistoryDropdown();
-		if (typeof this.update === "function") this.update();
 	}
 
 	private refreshHistoryDropdown(): void {
