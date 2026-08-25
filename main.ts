@@ -1052,6 +1052,12 @@ class AudioInboxSettingTab extends PluginSettingTab {
 
 		// AI
 		new Setting(containerEl).setName("AI 总结 — DeepSeek").setHeading();
+
+		containerEl.createDiv({
+			cls: "audio-inbox-guide",
+			text: "💡 温馨提示：DeepSeek 正式版已涨价（高峰输入 3 元、输出 9 元/百万 tokens，空闲半价），但单条录音成本仅约 0.01 元。建议定期到 platform.deepseek.com 查看余额，余额不足会导致总结失败。",
+		});
+
 		new Setting(containerEl).setName("DeepSeek API Key").addText(t => {
 			t.setValue(this.plugin.settings.aiApiKey); t.inputEl.type = "password";
 			t.onChange(async v => { this.plugin.settings.aiApiKey = v; await this.plugin.saveSettings(); });
