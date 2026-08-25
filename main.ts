@@ -1,4 +1,4 @@
-import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal, Platform, TextAreaComponent, DropdownComponent, ButtonComponent } from "obsidian";
+import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePath, TFile, Modal, Platform, TextAreaComponent, DropdownComponent, ButtonComponent, RequestUrlResponse } from "obsidian";
 
 // ==================== TYPES ====================
 
@@ -604,15 +604,31 @@ export default class AudioInboxPlugin extends Plugin {
 		let off = 0;
 		for (const p of parts) { body.set(p, off); off += p.length; }
 
-		const resp = await requestUrl({
-			url: this.settings.sttApiUrl,
-			method: "POST",
-			headers: {
-				"Authorization": `Bearer ${this.settings.sttApiKey}`,
-				"Content-Type": `multipart/form-data; boundary=${boundary}`,
-			},
-			body: body.buffer,
-		});
+		let resp: RequestUrlResponse;
+		try {
+			resp = await requestUrl({
+				url: this.settings.sttApiUrl,
+				method: "POST",
+				headers: {
+					"Authorization": `Bearer ${this.settings.sttApiKey}`,
+					"Content-Type": `multipart/form-data; boundary=${boundary}`,
+				},
+				body: body.buffer,
+			});
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err);
+			const st = (err as { status?: number })?.status || 0;
+			const m = /status[:\s]+(\d{3})/i.exec(errMsg);
+			const status = st || (m ? Number(m[1]) : 0);
+			console.error("AudioInbox: STT request failed:", errMsg);
+			if (status === 402 || errMsg.includes("balance") || errMsg.includes("30001") || errMsg.includes("4032")) {
+				throw new Error("STT 余额不足，请前往 siliconflow.cn 充值（10元即可）");
+			}
+			if (status === 401 || errMsg.includes("401") || errMsg.includes("invalid") || errMsg.includes("Api key")) {
+				throw new Error("STT API Key 无效，请检查设置");
+			}
+			throw new Error(`STT 请求失败${status ? ` (${status})` : ""}：${errMsg.substring(0, 100)}`);
+		}
 
 		if (resp.status !== 200) {
 			const errStr: string = resp.text || (resp.json ? JSON.stringify(resp.json) : "");
@@ -675,20 +691,35 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private async callAI(text: string): Promise<string> {
-		const resp = await requestUrl({
-			url: this.settings.aiApiUrl,
-			method: "POST",
-			headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.settings.aiApiKey}` },
-			body: JSON.stringify({
-				model: this.settings.aiModel,
-				messages: [
-					{ role: "system", content: this.settings.summaryPrompt },
-					{ role: "user", content: text },
-				],
-				temperature: 0.3, max_tokens: 3000,
-			}),
-		});
-		if (resp.status !== 200) throw new Error(`AI (${resp.status})`);
+		let resp: RequestUrlResponse;
+		try {
+			resp = await requestUrl({
+				url: this.settings.aiApiUrl,
+				method: "POST",
+				headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.settings.aiApiKey}` },
+				body: JSON.stringify({
+					model: this.settings.aiModel,
+					messages: [
+						{ role: "system", content: this.settings.summaryPrompt },
+						{ role: "user", content: text },
+					],
+					temperature: 0.3, max_tokens: 3000,
+				}),
+			});
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err);
+			const st = (err as { status?: number })?.status || 0;
+			const m = /status[:\s]+(\d{3})/i.exec(errMsg);
+			const status = st || (m ? Number(m[1]) : 0);
+			if (status === 402 || errMsg.includes("402")) {
+				throw new Error("DeepSeek 余额不足，请前往 platform.deepseek.com 充值后重试");
+			}
+			throw new Error(`AI 请求失败${status ? ` (${status})` : ""}：${errMsg.substring(0, 100)}`);
+		}
+		if (resp.status !== 200) {
+			if (resp.status === 402) throw new Error("DeepSeek 余额不足，请前往 platform.deepseek.com 充值后重试");
+			throw new Error(`AI 请求失败 (${resp.status})`);
+		}
 		const json = resp.json as { choices?: Array<{ message?: { content?: string } }> };
 		return json.choices?.[0]?.message?.content || "";
 	}
