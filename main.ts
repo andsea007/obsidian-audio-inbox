@@ -25,6 +25,7 @@ interface AudioInboxSettings {
 	summaryPrompt: string;
 	maxRecordMinutes: number;
 	autoStopOnLimit: boolean;
+	showFloatingButton: boolean;
 	promptHistory: string[];
 	promptVersion?: number;
 	showTranscript: boolean;
@@ -36,11 +37,11 @@ const DEFAULTS: AudioInboxSettings = {
 	outputFolder: "VoiceNotes",
 	sttApiUrl: "https://api.siliconflow.cn/v1/audio/transcriptions",
 	sttApiKey: "",
-	sttModel: "FunAudioLLM/SenseVoiceSmall",
+	sttModel: "TeleAI/TeleSpeechASR",
 	sttLanguage: "zh",
 	aiApiUrl: "https://api.deepseek.com/v1/chat/completions",
 	aiApiKey: "",
-	aiModel: "deepseek-chat",
+	aiModel: "deepseek-v4-flash",
 	summaryPrompt: `你是一名智能语音笔记助手。以下文本由语音识别（STT）自动生成，**可能包含错别字、同音字、漏字、断句错误**。
 
 ## 核心规则（必须先执行）
@@ -76,11 +77,12 @@ const DEFAULTS: AudioInboxSettings = {
 
 ### 备忘内容
 （备忘/混合时输出；整理成清晰备忘正文，修正所有识别错误，保留全部关键信息）`,
-	maxRecordMinutes: 4,
+	maxRecordMinutes: 60,
 	autoStopOnLimit: true,
+	showFloatingButton: true,
 	promptHistory: [],
 	showTranscript: false,
-	deleteAfterProcess: true,
+	deleteAfterProcess: false,
 };
 
 // ==================== RECORDING MODAL ====================
@@ -93,6 +95,8 @@ class RecordModal extends Modal {
 	private startTime = 0;
 	private timerId: number | null = null;
 	private isFinished = false;
+	private stopRequested = false;
+	private interrupted = false;
 	private mimeType = "";
 	private timerEl!: HTMLSpanElement;
 	private warnEl!: HTMLDivElement;
@@ -100,6 +104,16 @@ class RecordModal extends Modal {
 	private autoStop: boolean;
 	private warnAtSec = 30;
 	private autoStopped = false;
+	private wakeLock: { release: () => Promise<void> } | null = null;
+	private readonly onVisibilityChange = () => {
+		if (activeDocument.hidden) {
+			const lock = this.wakeLock;
+			this.wakeLock = null;
+			if (lock) void lock.release();
+			return;
+		}
+		if (!this.isFinished) void this.acquireWakeLock();
+	};
 
 	constructor(app: App, resolve: (blob: Blob | null) => void, maxDurationSec = 0, autoStop = true) {
 		super(app);
@@ -122,9 +136,9 @@ class RecordModal extends Modal {
 		const maxLabel = this.maxDurationSec > 0 ? `（最长 ${this.formatDuration(this.maxDurationSec)}）` : "（不限时长）";
 		statusRow.createSpan({ text: ` 录音中，请说话...${maxLabel}`, cls: "ai-modal-label" });
 		this.warnEl = contentEl.createDiv({ cls: "ai-modal-warn" });
-		this.warnAtSec = this.maxDurationSec >= 120 ? 60 : 30;
+		this.warnAtSec = this.maxDurationSec >= 3600 ? 60 : 30;
 		if (this.maxDurationSec > 0) {
-			this.warnEl.setText(`💡 建议单条录音不超过 ${this.formatDuration(this.maxDurationSec)}，超长录音容易识别失败`);
+			this.warnEl.setText(`💡 默认上限 ${this.formatDuration(this.maxDurationSec)}；请保持 Obsidian 在前台，手机锁屏可能中断录音`);
 		}
 
 		// Buttons
@@ -136,24 +150,46 @@ class RecordModal extends Modal {
 			this.stream = await navigator.mediaDevices.getUserMedia({
 				audio: { echoCancellation: true, noiseSuppression: true },
 			});
+			if (this.isFinished) {
+				this.stream.getTracks().forEach(t => t.stop());
+				return;
+			}
 		} catch {
 			contentEl.empty();
 			contentEl.createEl("h3", { text: "❌ 无法访问麦克风" });
 			contentEl.createEl("p", { text: "请在系统设置中允许 Obsidian 使用麦克风权限，然后重试。" });
 			contentEl.createEl("p", { text: "💡 或者用 Obsidian 内置录音功能录制，保存到「录音」文件夹，再用 Ctrl+P「处理录音文件夹」功能。" });
 			const closeBtn = contentEl.createEl("button", { text: "关闭", cls: "ai-modal-stop" });
-			closeBtn.onclick = () => { this.isFinished = true; this.close(); };
+			closeBtn.onclick = () => { this.close(); };
 			return;
 		}
 
-		// MediaRecorder
-		this.mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-			? "audio/webm;codecs=opus" : "audio/webm";
-		this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: this.mimeType, audioBitsPerSecond: 64000 });
-		this.mediaRecorder.ondataavailable = (e: BlobEvent) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
-		this.mediaRecorder.onstop = () => { this.finish(); };
-		this.audioChunks = [];
-		this.mediaRecorder.start(250);
+		// Keep the compressed recording intact. WebM/Opus at 64 kbps is about 29 MB/hour.
+		try {
+			const supportedMime = [
+				"audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm", "audio/ogg",
+			].find(type => MediaRecorder.isTypeSupported(type));
+			this.mimeType = supportedMime || "";
+			this.mediaRecorder = this.mimeType
+				? new MediaRecorder(this.stream, { mimeType: this.mimeType, audioBitsPerSecond: 64000 })
+				: new MediaRecorder(this.stream, { audioBitsPerSecond: 64000 });
+			this.mediaRecorder.ondataavailable = (e: BlobEvent) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
+			this.mediaRecorder.onstop = () => {
+				if (!this.stopRequested && !this.autoStopped) this.interrupted = true;
+				this.finish();
+			};
+			this.audioChunks = [];
+			// Emit one finalized container when recording stops.
+			this.mediaRecorder.start();
+		} catch (error) {
+			console.error("AudioInbox: Could not start recorder", error);
+			new Notice("录音器启动失败，请检查设备的音频录制支持情况");
+			this.mediaRecorder = null;
+			this.finish();
+			return;
+		}
+		activeDocument.addEventListener("visibilitychange", this.onVisibilityChange);
+		void this.acquireWakeLock();
 
 		// Timer
 		this.startTime = Date.now();
@@ -187,7 +223,7 @@ class RecordModal extends Modal {
 					this.timerEl.addClass("ai-modal-timer-warn");
 				} else {
 					this.warnEl.setText(this.maxDurationSec > 0
-						? `💡 建议单条录音不超过 ${this.formatDuration(this.maxDurationSec)}，超长录音容易识别失败`
+						? `💡 默认上限 ${this.formatDuration(this.maxDurationSec)}；请保持 Obsidian 在前台，手机锁屏可能中断录音`
 						: "");
 					this.warnEl.removeClass("ai-modal-warn-active");
 					this.timerEl.removeClass("ai-modal-timer-warn");
@@ -199,22 +235,42 @@ class RecordModal extends Modal {
 	}
 
 	private doStop() {
-		if (this.timerId) window.clearInterval(this.timerId);
-		if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-			this.mediaRecorder.stop();
+		if (this.timerId) { window.clearInterval(this.timerId); this.timerId = null; }
+		if (this.mediaRecorder) {
+			if (this.mediaRecorder.state !== "inactive") {
+				this.stopRequested = true;
+				this.mediaRecorder.stop();
+			}
+			// An inactive recorder can still have a queued final dataavailable event.
+			// Its onstop handler calls finish() after that event arrives.
 		} else {
 			this.finish();
+		}
+	}
+
+	private async acquireWakeLock() {
+		if (this.wakeLock || this.isFinished) return;
+		try {
+			const nav = navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> } };
+			const lock = await nav.wakeLock?.request("screen");
+			if (this.isFinished) { if (lock) void lock.release(); return; }
+			this.wakeLock = lock || null;
+		} catch {
+			// Screen Wake Lock is optional; unsupported devices can still record while foregrounded.
 		}
 	}
 
 	private finish() {
 		if (this.isFinished) return;
 		this.isFinished = true;
+		activeDocument.removeEventListener("visibilitychange", this.onVisibilityChange);
+		if (this.wakeLock) { void this.wakeLock.release(); this.wakeLock = null; }
 		if (this.stream) this.stream.getTracks().forEach(t => t.stop());
 		if (this.timerId) window.clearInterval(this.timerId);
 		const blob = this.audioChunks.length > 0
-			? new Blob(this.audioChunks, { type: this.mimeType || "audio/webm" })
+			? new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.mimeType || "audio/webm" })
 			: null;
+		if (blob && this.interrupted) (blob as Blob & { audioInboxInterrupted?: boolean }).audioInboxInterrupted = true;
 		this.resolve(blob);
 		if (this.autoStopped) new Notice("⏰ 已达最长录音时长，已自动结束录音");
 		this.close();
@@ -227,7 +283,8 @@ class RecordModal extends Modal {
 	}
 
 	onClose() {
-		this.finish();
+		// Wait for MediaRecorder's final dataavailable event before resolving.
+		if (!this.isFinished) this.doStop();
 	}
 }
 
@@ -237,6 +294,7 @@ export default class AudioInboxPlugin extends Plugin {
 	settings: AudioInboxSettings;
 	private isBusy = false;
 	private fabEl: HTMLElement | null = null;
+	private fabInterval: number | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -261,7 +319,7 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private addFab() {
-		if (!Platform.isMobileApp) return;
+		if (!Platform.isMobileApp || !this.settings.showFloatingButton || this.fabEl) return;
 
 		const fab = activeDocument.body.createDiv({ cls: "ai-fab" });
 		const svgns = "http://www.w3.org/2000/svg";
@@ -338,17 +396,43 @@ export default class AudioInboxPlugin extends Plugin {
 		});
 
 		// Re-inject if Obsidian mobile re-renders
-		this.registerInterval(window.setInterval(() => {
+		this.fabInterval = this.registerInterval(window.setInterval(() => {
+			if (!this.settings.showFloatingButton) return;
 			if (!activeDocument.body.contains(fab)) {
 				activeDocument.body.appendChild(fab);
 			}
 		}, 3000));
 	}
 
+	private removeFab() {
+		if (this.fabInterval !== null) {
+			window.clearInterval(this.fabInterval);
+			this.fabInterval = null;
+		}
+		this.fabEl?.remove();
+		this.fabEl = null;
+	}
+
+	refreshFloatingButton(show: boolean) {
+		if (show) this.addFab();
+		else this.removeFab();
+	}
+
 	async loadSettings() {
 		const saved = await this.loadData() as Partial<AudioInboxSettings> | null;
 		this.settings = Object.assign({}, DEFAULTS, saved || {});
 		if (!Array.isArray(this.settings.promptHistory)) this.settings.promptHistory = [];
+		let migrated = false;
+		// The old stored default was 5 minutes. Move that default to the requested one-hour limit.
+		if (saved?.maxRecordMinutes === 5) {
+			this.settings.maxRecordMinutes = 60;
+			migrated = true;
+		}
+		// DeepSeek retired this model ID; migrate only when the configured endpoint is DeepSeek.
+		if (this.settings.aiModel === "deepseek-chat" && this.settings.aiApiUrl.includes("api.deepseek.com")) {
+			this.settings.aiModel = "deepseek-v4-flash";
+			migrated = true;
+		}
 		// One-time migration for legacy prompts ONLY (old "## ✅ / ## 📋" format).
 		// Never overwrite a user-edited prompt: this used to run on every load
 		// and silently reset custom prompts back to the default after restart.
@@ -361,11 +445,12 @@ export default class AudioInboxPlugin extends Plugin {
 			this.settings.promptVersion = 1;
 			await this.saveSettings();
 		}
-		// Auto-migrate: if deleteAfterProcess not set, default to true
+		// New installs and settings without an explicit choice retain their audio.
 		if (saved && saved.deleteAfterProcess === undefined) {
-			this.settings.deleteAfterProcess = true;
-			await this.saveSettings();
+			this.settings.deleteAfterProcess = false;
+			migrated = true;
 		}
+		if (migrated) await this.saveSettings();
 	}
 	async saveSettings() { await this.saveData(this.settings); }
 
@@ -384,7 +469,7 @@ export default class AudioInboxPlugin extends Plugin {
 	async startRecordFlow() {
 		if (this.isBusy) { new Notice("⏳ 正在处理中..."); return; }
 		if (!this.settings.sttApiKey || !this.settings.aiApiKey) {
-			new Notice("⚠️ 请先在设置中填入 STT 和 AI 的 API Key\n硅基流动 + DeepSeek 各一个 Key");
+			new Notice("⚠️ 请先分别填写语音转写与 AI 总结服务的 API Key");
 			return;
 		}
 
@@ -407,9 +492,12 @@ export default class AudioInboxPlugin extends Plugin {
 			// 2. Save audio
 			statusEl.setText("📁 保存录音...");
 			const audioPath = await this.saveAudio(blob);
+			if ((blob as Blob & { audioInboxInterrupted?: boolean }).audioInboxInterrupted) {
+				throw new Error(`录音设备意外中断，已保存已录部分到 ${audioPath}；请检查麦克风和应用前台状态`);
+			}
 
-			// 3. STT (SiliconFlow free)
-			statusEl.setText("🎧 语音转文字...");
+			// 3. Speech to text
+			statusEl.setText("🎧 语音转文字中，长录音可能需要几分钟...");
 			const transcript = await this.callSTT(blob);
 			if (!transcript || transcript.trim().length < 2) {
 				statusEl.setText("⚠️ 无结果");
@@ -424,6 +512,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 			// 5. Parse AI response — save to memo/todo only
 			const parsed = parseAIResponse(summary);
+			if (!hasGeneratedContent(parsed)) throw new Error("AI 未生成可保存的笔记，原录音已保留");
 
 			if (parsed.type === "reminder" || parsed.type === "mixed") {
 				if (parsed.todos.length > 0) {
@@ -502,6 +591,8 @@ export default class AudioInboxPlugin extends Plugin {
 				else if (ext === "mp3") mime = "audio/mpeg";
 				else if (ext === "wav") mime = "audio/wav";
 				else if (ext === "ogg") mime = "audio/ogg";
+				else if (ext === "aac") mime = "audio/aac";
+				else if (ext === "flac") mime = "audio/flac";
 
 				const blob = new Blob([buf], { type: mime });
 				const txt = await this.callSTT(blob);
@@ -509,6 +600,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 				const summary = await this.callAI(txt);
 				const parsed = parseAIResponse(summary);
+				if (!hasGeneratedContent(parsed)) throw new Error("AI 未生成可保存的笔记，原录音已保留");
 				if ((parsed.type === "reminder" || parsed.type === "mixed") && parsed.todos.length > 0) {
 					await this.saveTodos(parsed.todos, parsed.title);
 				}
@@ -553,19 +645,25 @@ export default class AudioInboxPlugin extends Plugin {
 		const dir = normalizePath(this.settings.inboxFolder);
 		await this.ensureFolder(dir);
 		const now = new Date();
-		const fn = `录音-${fmtDate(now)}-${fmtTime(now)}.webm`;
+		const mime = (blob.type || "audio/webm").toLowerCase();
+		const ext = mime.includes("mp4") ? "m4a" : mime.includes("mpeg") ? "mp3"
+			: mime.includes("ogg") ? "ogg" : mime.includes("wav") ? "wav" : "webm";
+		const fn = `录音-${fmtDate(now)}-${fmtTime(now)}.${ext}`;
 		const fp = normalizePath(`${dir}/${fn}`);
 		await this.app.vault.createBinary(fp, await blob.arrayBuffer());
 		return fp;
 	}
 
 	private async callSTT(audioBlob: Blob): Promise<string> {
-		// Convert to WAV if needed (SenseVoiceSmall works best with PCM WAV)
+		// Upload compressed recordings as-is. Converting an hour of speech to WAV can exceed 100 MB.
 		let finalBlob = audioBlob;
-		let finalExt = "webm";
-		let finalMime = audioBlob.type || "audio/webm";
+		let finalMime = (audioBlob.type || "audio/webm").toLowerCase();
+		let finalExt = finalMime.includes("mp4") ? "m4a" : finalMime.includes("mpeg") ? "mp3"
+			: finalMime.includes("ogg") ? "ogg" : finalMime.includes("wav") ? "wav"
+			: finalMime.includes("flac") ? "flac" : finalMime.includes("aac") ? "aac" : "webm";
 
-		if (!audioBlob.type.includes("wav") && !audioBlob.type.includes("mpeg")) {
+		const compatibleCompressedFormat = /audio\/(webm|mp4|ogg|mpeg|flac|aac)/i.test(finalMime);
+		if (!compatibleCompressedFormat && !finalMime.includes("wav")) {
 			try {
 				finalBlob = await this.convertToWav(audioBlob);
 				finalExt = "wav";
@@ -577,15 +675,12 @@ export default class AudioInboxPlugin extends Plugin {
 
 		// Manual multipart body (requestUrl compatible, works on mobile)
 		const boundary = "----AiInbox" + Math.random().toString(36).slice(2);
-		const enc = new TextEncoder();
-		const buf = await finalBlob.arrayBuffer();
-
-		const parts: Uint8Array[] = [];
-		const line = (s: string) => parts.push(enc.encode(s));
+		const parts: BlobPart[] = [];
+		const line = (s: string) => parts.push(s);
 		line(`--${boundary}\r\n`);
 		line(`Content-Disposition: form-data; name="file"; filename="audio.${finalExt}"\r\n`);
 		line(`Content-Type: ${finalMime}\r\n\r\n`);
-		parts.push(new Uint8Array(buf));
+		parts.push(finalBlob);
 		line(`\r\n--${boundary}\r\n`);
 		line(`Content-Disposition: form-data; name="model"\r\n\r\n`);
 		line(`${this.settings.sttModel}\r\n`);
@@ -599,10 +694,7 @@ export default class AudioInboxPlugin extends Plugin {
 		line(`text\r\n`);
 		line(`--${boundary}--\r\n`);
 
-		const total = parts.reduce((s, p) => s + p.length, 0);
-		const body = new Uint8Array(total);
-		let off = 0;
-		for (const p of parts) { body.set(p, off); off += p.length; }
+		const body = await new Blob(parts).arrayBuffer();
 
 		let resp: RequestUrlResponse;
 		try {
@@ -613,7 +705,7 @@ export default class AudioInboxPlugin extends Plugin {
 					"Authorization": `Bearer ${this.settings.sttApiKey}`,
 					"Content-Type": `multipart/form-data; boundary=${boundary}`,
 				},
-				body: body.buffer,
+				body,
 			});
 		} catch (err) {
 			const errMsg = err instanceof Error ? err.message : String(err);
@@ -621,8 +713,10 @@ export default class AudioInboxPlugin extends Plugin {
 			const m = /status[:\s]+(\d{3})/i.exec(errMsg);
 			const status = st || (m ? Number(m[1]) : 0);
 			console.error("AudioInbox: STT request failed:", errMsg);
+			if (status === 413) throw new Error("录音超过语音识别服务的文件大小限制，请缩短录音或更换服务商");
+			if (status === 415) throw new Error("语音识别服务不支持当前录音格式，请更换兼容的接口");
 			if (status === 402 || errMsg.includes("balance") || errMsg.includes("30001") || errMsg.includes("4032")) {
-				throw new Error("STT 余额不足，请前往 siliconflow.cn 充值（10元即可）");
+				throw new Error("语音识别服务额度不足，请检查服务商账户");
 			}
 			if (status === 401 || errMsg.includes("401") || errMsg.includes("invalid") || errMsg.includes("Api key")) {
 				throw new Error("STT API Key 无效，请检查设置");
@@ -633,20 +727,48 @@ export default class AudioInboxPlugin extends Plugin {
 		if (resp.status !== 200) {
 			const errStr: string = resp.text || (resp.json ? JSON.stringify(resp.json) : "");
 			console.error("AudioInbox: STT error response:", errStr);
+			if (resp.status === 413) throw new Error("录音超过语音识别服务的文件大小限制，请缩短录音或更换服务商");
+			if (resp.status === 415) throw new Error("语音识别服务不支持当前录音格式，请更换兼容的接口");
 			if (errStr.includes("balance") || errStr.includes("30001") || errStr.includes("4032")) {
-				throw new Error("STT 余额不足，请前往 siliconflow.cn 充值（10元即可）");
+				throw new Error("语音识别服务额度不足，请检查服务商账户");
 			}
 			if (errStr.includes("invalid") || errStr.includes("Api key") || errStr.includes("401")) {
 				throw new Error("STT API Key 无效，请检查设置");
 			}
-			if (errStr.includes("20015") || errStr.includes("format") || errStr.includes("decode")) {
-				throw new Error("录音格式不兼容，请尝试更短的录音或更换格式");
+			if (errStr.includes("20015") || errStr.toLowerCase().includes("format") || errStr.toLowerCase().includes("decode")) {
+				throw new Error("服务商不接受当前音频格式；请换用支持该格式的转写接口");
 			}
 			throw new Error(`STT 失败 (${resp.status}): ${errStr.substring(0, 100)}`);
 		}
 
-		// response_format=text => API returns plain text
-		const result: string = resp.text || "";
+		// SiliconFlow returns JSON such as {"text":"..."}; other compatible
+		// providers may return plain text. Extract the transcript rather than
+		// passing the JSON wrapper (or an empty transcript) to the summary model.
+		const raw = resp.text || "";
+		let parsed: unknown;
+		try {
+			parsed = resp.json as unknown;
+		} catch {
+			try { parsed = JSON.parse(raw) as unknown; } catch { /* Plain text response. */ }
+		}
+		let result = "";
+		if (parsed && typeof parsed === "object") {
+			if (!("text" in parsed) || typeof (parsed as { text?: unknown }).text !== "string") {
+				throw new Error("语音识别接口返回了无法识别的 JSON 格式，原录音已保留");
+			}
+			result = (parsed as { text: string }).text;
+		} else if (typeof parsed === "string") {
+			result = parsed;
+		} else if (raw.trim().startsWith("<")) {
+			throw new Error("语音识别接口返回了网页而非转写结果，原录音已保留");
+		} else {
+			result = raw;
+		}
+		if (!result.trim()) {
+			const body = parsed && typeof parsed === "object" ? parsed as { usage?: { seconds?: unknown } } : null;
+			const seconds = typeof body?.usage?.seconds === "number" ? body.usage.seconds : "unknown";
+			console.warn("AudioInbox: STT returned empty transcript", { serverSeconds: seconds, audioBytes: audioBlob.size, mimeType: audioBlob.type });
+		}
 		return result;
 	}
 
@@ -693,6 +815,8 @@ export default class AudioInboxPlugin extends Plugin {
 	private async callAI(text: string): Promise<string> {
 		let resp: RequestUrlResponse;
 		try {
+			const useDeepSeekReasoning = new URL(this.settings.aiApiUrl).hostname === "api.deepseek.com"
+				&& /^(deepseek-v4-flash|deepseek-v4-pro)$/.test(this.settings.aiModel);
 			resp = await requestUrl({
 				url: this.settings.aiApiUrl,
 				method: "POST",
@@ -700,10 +824,13 @@ export default class AudioInboxPlugin extends Plugin {
 				body: JSON.stringify({
 					model: this.settings.aiModel,
 					messages: [
-						{ role: "system", content: this.settings.summaryPrompt },
+						{ role: "system", content: `${this.settings.summaryPrompt}\n\n准确性要求：只依据转写内容；不得补造原文未明确提到的事实、人物、时间或待办。只修正能由上下文明确判断的识别错误；不确定的信息标注“待确认”。请按“### 标题、### 类型、### 总结、### 待办事项、### 备忘内容”分节；标题不超过十个汉字且不含编号或时间。待办只写明确要求将来执行的动作；已完成的事、现状、原则说明和测试范围写入备忘。条件性安排须保留条件。` },
 						{ role: "user", content: text },
 					],
-					temperature: 0.3, max_tokens: 3000,
+					max_tokens: useDeepSeekReasoning ? 12000 : 6000,
+					...(useDeepSeekReasoning
+						? { thinking: { type: "enabled" }, reasoning_effort: "low" }
+						: { temperature: 0.2 }),
 				}),
 			});
 		} catch (err) {
@@ -712,16 +839,24 @@ export default class AudioInboxPlugin extends Plugin {
 			const m = /status[:\s]+(\d{3})/i.exec(errMsg);
 			const status = st || (m ? Number(m[1]) : 0);
 			if (status === 402 || errMsg.includes("402")) {
-				throw new Error("DeepSeek 余额不足，请前往 platform.deepseek.com 充值后重试");
+				throw new Error("AI 服务额度不足，请检查服务商账户");
 			}
 			throw new Error(`AI 请求失败${status ? ` (${status})` : ""}：${errMsg.substring(0, 100)}`);
 		}
 		if (resp.status !== 200) {
-			if (resp.status === 402) throw new Error("DeepSeek 余额不足，请前往 platform.deepseek.com 充值后重试");
+			if (resp.status === 402) throw new Error("AI 服务额度不足，请检查服务商账户");
 			throw new Error(`AI 请求失败 (${resp.status})`);
 		}
-		const json = resp.json as { choices?: Array<{ message?: { content?: string } }> };
-		return json.choices?.[0]?.message?.content || "";
+		let json: { choices?: Array<{ finish_reason?: string; message?: { content?: string } }> };
+		try { json = resp.json as typeof json; }
+		catch { throw new Error("AI 服务返回了无法解析的内容，原录音已保留"); }
+		const choice = json.choices?.[0];
+		if (choice?.finish_reason === "length") {
+			throw new Error("AI 总结达到输出长度上限，原录音已保留；请缩短录音或更换支持更长输出的模型");
+		}
+		const content = choice?.message?.content || "";
+		if (!content.trim()) throw new Error("AI 总结返回空内容，原录音已保留");
+		return content;
 	}
 
 	// ===== SAVE: 四级目录 — VoiceNotes/月/日/单文件 =====
@@ -763,6 +898,7 @@ export default class AudioInboxPlugin extends Plugin {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error('AudioInbox: saveMemo error', e);
 			new Notice(`❌ 备忘录保存失败: ${msg}`, 8000);
+			throw e;
 		}
 	}
 
@@ -795,6 +931,7 @@ export default class AudioInboxPlugin extends Plugin {
 			await adapter.write(np, content);
 		} catch (e) {
 			console.error('AudioInbox: saveTodos error', e);
+			throw e;
 		}
 
 		// Sync to clean.txt (append + dedup) and clipboard for iOS Shortcuts
@@ -888,11 +1025,18 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	onunload() {
-		if (this.fabEl) this.fabEl.remove();
+		this.removeFab();
 	}
 }
 
 // ==================== UTILS ====================
+
+function hasGeneratedContent(parsed: ParsedAI): boolean {
+	const hasMemo = (parsed.type === "memo" || parsed.type === "mixed") && parsed.memo.trim().length > 0;
+	const hasTodos = (parsed.type === "reminder" || parsed.type === "mixed")
+		&& parsed.todos.some(todo => !/^-\s*\[\s*\]\s*无\s*$/.test(todo));
+	return hasMemo || hasTodos;
+}
 
 /** Parse the AI response to extract content type, todos, memo, and summary.
  *  Handles both the new structured format (### 类型) and the legacy format (## 📋 总结 / ## ✅ 待办事项). */
@@ -946,7 +1090,8 @@ function parseAIResponse(text: string): ParsedAI {
 			summary += line + "\n";
 		} else if (currentSection === "todos") {
 			if (/^\s*-\s*\[ \]\s*\S/.test(line)) {
-				todos.push(line.trim());
+				const todo = line.trim();
+				if (!/^-\s*\[ \]\s*无(?:$|[（(])/.test(todo)) todos.push(todo);
 			}
 		} else if (currentSection === "memo" && trimmed) {
 			memo += line + "\n";
@@ -1008,12 +1153,12 @@ class AudioInboxSettingTab extends PluginSettingTab {
 
 		containerEl.createDiv({
 			cls: "audio-inbox-guide",
-			text: "⏱️ 关于录音时长：语音识别模型 SenseVoiceSmall 对短语音最稳定，实测单条录音超过 5 分钟容易出现转写/总结失败，所以默认上限为 4 分钟。到点前 1 分钟会提醒，默认自动结束录音；可在下方修改上限（0 = 不限）或关闭自动结束。",
+			text: "⏱️ 默认录音上限 60 分钟。录音保留 WebM/Opus 压缩格式，避免长录音转 WAV 后超过接口文件限制。服务商的时长、文件大小和格式限制各不相同；录音时请保持 Obsidian 在前台，手机锁屏可能中断。",
 		});
 
 		new Setting(containerEl)
 			.setName("最长录音时长（分钟）")
-			.setDesc("根据 SenseVoiceSmall 的实际识别能力综合判定，默认 4 分钟（超过 5 分钟易出现转写/总结失败）；设为 0 表示不限制。")
+			.setDesc("默认 60 分钟，可设为 0 手动停止。实际可处理时长仍取决于所选语音识别 API 的限制。")
 			.addText(t => {
 				t.inputEl.type = "number";
 				t.inputEl.min = "0";
@@ -1036,29 +1181,34 @@ class AudioInboxSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// STT
-		new Setting(containerEl).setName("语音转文字 (STT) — 硅基流动").setDesc("SiliconFlow SenseVoiceSmall 完全免费，需账户有余额（充10元够用很久）").setHeading();
+		new Setting(containerEl)
+			.setName("显示手机悬浮球")
+			.setDesc("仅在 Obsidian 手机端显示；关闭后可从命令面板或侧边栏开始录音。")
+			.addToggle(t => t.setValue(this.plugin.settings.showFloatingButton).onChange(async v => {
+				this.plugin.settings.showFloatingButton = v;
+				await this.plugin.saveSettings();
+				if (v) this.plugin.refreshFloatingButton(true);
+				else this.plugin.refreshFloatingButton(false);
+			}));
 
-		new Setting(containerEl).setName("STT API Key").addText(t => {
+		// STT
+		new Setting(containerEl).setName("语音转文字 API").setDesc("填写兼容 multipart /audio/transcriptions 的地址、模型和 API Key；服务商可自行选择，并需支持当前音频格式。").setHeading();
+
+		new Setting(containerEl).setName("语音识别 API Key").addText(t => {
 			t.setValue(this.plugin.settings.sttApiKey); t.inputEl.type = "password";
 			t.onChange(async v => { this.plugin.settings.sttApiKey = v; await this.plugin.saveSettings(); });
 		});
-		new Setting(containerEl).setName("STT API 地址").addText(t =>
+		new Setting(containerEl).setName("语音识别 API 地址").addText(t =>
 			t.setValue(this.plugin.settings.sttApiUrl).onChange(async v => { this.plugin.settings.sttApiUrl = v; await this.plugin.saveSettings(); }));
-		new Setting(containerEl).setName("STT 模型").addText(t =>
+		new Setting(containerEl).setName("语音识别模型").addText(t =>
 			t.setValue(this.plugin.settings.sttModel).onChange(async v => { this.plugin.settings.sttModel = v; await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("语言 (zh/en)").addText(t =>
 			t.setValue(this.plugin.settings.sttLanguage).onChange(async v => { this.plugin.settings.sttLanguage = v; await this.plugin.saveSettings(); }));
 
 		// AI
-		new Setting(containerEl).setName("AI 总结 — DeepSeek").setHeading();
+		new Setting(containerEl).setName("AI 总结 API").setDesc("填写兼容 /chat/completions 请求格式的完整地址、模型和 API Key；不要求使用 OpenAI，服务商可自行选择。").setHeading();
 
-		containerEl.createDiv({
-			cls: "audio-inbox-guide",
-			text: "💡 温馨提示：DeepSeek 正式版已涨价（高峰输入 3 元、输出 9 元/百万 tokens，空闲半价），但单条录音成本仅约 0.01 元。建议定期到 platform.deepseek.com 查看余额，余额不足会导致总结失败。",
-		});
-
-		new Setting(containerEl).setName("DeepSeek API Key").addText(t => {
+		new Setting(containerEl).setName("AI API Key").addText(t => {
 			t.setValue(this.plugin.settings.aiApiKey); t.inputEl.type = "password";
 			t.onChange(async v => { this.plugin.settings.aiApiKey = v; await this.plugin.saveSettings(); });
 		});
@@ -1097,7 +1247,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			t.setValue(this.plugin.settings.outputFolder).onChange(async v => { this.plugin.settings.outputFolder = v; await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("显示原始文本").addToggle(t =>
 			t.setValue(this.plugin.settings.showTranscript).onChange(async v => { this.plugin.settings.showTranscript = v; await this.plugin.saveSettings(); }));
-		new Setting(containerEl).setName("处理后删除录音文件").setDesc("开启后录音转文字完成后自动删除原音频，节省空间。关闭则保留录音文件。").addToggle(t =>
+		new Setting(containerEl).setName("处理后删除录音文件").setDesc("开启后成功生成笔记时将原音频移至回收站；关闭则保留录音文件。").addToggle(t =>
 			t.setValue(this.plugin.settings.deleteAfterProcess).onChange(async v => { this.plugin.settings.deleteAfterProcess = v; await this.plugin.saveSettings(); }));
 	}
 

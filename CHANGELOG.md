@@ -1,124 +1,27 @@
 # Changelog
 
-## [2.6.6] - 2026-08-25
+All notable changes to Audio Inbox are documented here.
 
-### 💡 新增：DeepSeek 涨价温馨提示
-- 设置面板「AI 总结 — DeepSeek」区块新增提示框，说明 DeepSeek 正式版价格调整（高峰输入 3 元、输出 9 元/百万 tokens，空闲半价）
-- 说明单条录音实际成本约 0.01 元，并提醒用户定期到 platform.deepseek.com 查看余额，避免余额不足导致总结失败
+## [2.7.3] - 2026-09-23
 
-## [2.6.5] - 2026-08-25
+### Long recordings & reliability
+- Raise the default recording limit to **60 minutes**, with a configurable limit and an auto-stop option.
+- Keep recordings compressed as WebM/Opus and upload them without expanding hour-long audio into oversized WAV files.
+- Flush the recorder's final audio event on stop or window close; detect unexpected recorder interruption and save the partial audio for recovery.
+- Handle microphone-permission and recorder-startup failures without leaving the recording workflow stuck.
 
-### 🛠️ 修复：余额不足（402）改为中文友好提示
-- 之前 DeepSeek / 硅基流动余额不足时，只显示英文报错 "Request failed, status 402"
-- 现在会自动识别 402，提示「DeepSeek 余额不足，请前往 platform.deepseek.com 充值后重试」
-- STT 余额不足时提示「前往 siliconflow.cn 充值（10元即可）」
-- 其他网络/接口错误也会显示带状态码的中文提示，方便排查
-- 界面与录音功能无变化
+### Flexible speech & summary APIs
+- Make the speech-recognition endpoint/model and the summary endpoint/model configurable; the plugin does not require OpenAI.
+- Default speech recognition to `TeleAI/TeleSpeechASR`; default summarization to **`deepseek-v4-flash`**.
+- Automatically migrate the retired `deepseek-chat` model ID to `deepseek-v4-flash` (DeepSeek retired `deepseek-chat` / `deepseek-reasoner` on 2026-07-24).
+- Parse both JSON `{ "text": "..." }` and plain-text STT responses. Empty, malformed, HTML, or truncated responses now fail clearly and retain the audio.
+- Reduce DeepSeek reasoning effort and increase the output allowance for long transcripts; use stricter summary instructions to limit invented facts and false todos.
 
-## [2.6.4] - 2026-08-14
+### Floating button & data safety
+- Add a settings switch to show or hide the mobile floating record button.
+- Default to keeping original recordings after processing.
+- Avoid marking an empty or unsaved AI response as successful.
 
-### 🔧 审核修复
-- 移除对 Obsidian 1.13+ `update()` API 的调用（声明式设置移除后已不再需要），修复“使用高于 minAppVersion 的 API”审核错误
-- 界面与功能无变化
+## Earlier versions
 
-## [2.6.3] - 2026-08-14
-
-### 🔧 兼容性修复
-- 移除 Obsidian 1.13+ 声明式设置 API（getSettingDefinitions），修复社区审核报错，并保持 minAppVersion 1.7.0 兼容（Obsidian 1.12.x 也可正常使用）
-- 设置面板恢复为原有渲染方式，所有版本行为一致
-
-## [2.6.2] - 2026-08-14
-
-### 🧹 社区审核合规修复
-- 移除全部多余的 console.log 日志，仅保留错误路径的 warn/error
-- 修复类型安全警告（不再依赖 padStart 等 ES2017 字符串 API，改为手动补零）
-- 实现 Obsidian 1.13+ 声明式设置 API（getSettingDefinitions），设置项可在设置搜索中检索；旧版本继续使用原有渲染
-
-## [2.6.1] - 2026-08-14
-
-### ⏰ 录音时长上限
-- 新增「最长录音时长」设置（默认 4 分钟，可设为 0 取消限制）——根据 SenseVoiceSmall 模型实际识别能力综合判定，超过 5 分钟易出现转写/总结失败
-- 剩余 1 分钟时在录音弹窗内提醒，到点自动结束录音并进入转写流程
-- 新增「到点自动结束录音」开关：关闭后到点只提醒、不强制停止
-
-### 🧠 提示词历史
-- 修复：用户自定义提示词在重启后被自动还原为默认的问题（原迁移逻辑会误伤自定义提示词）
-- 新增提示词历史：编辑前的旧版本自动存档、去重、最多保留 20 条，可一键恢复
-- 支持手动保存当前提示词、一键恢复默认提示词
-
-## [2.5.0] - 2026-07-11
-
-### 🗂️ 四级目录结构重构
-彻底告别"一个日期一个文件"的旧模式。新的文件组织方式：
-- **VoiceNotes/** — 一级根目录
-- **2026-07/** — 二级月份文件夹
-- **2026-07-11/** — 三级日期文件夹
-- **一元线性回归.md** — 四级单个事件文件
-
-每个备忘/待办都是独立文件，不再追加合并。碰撞自动加时间后缀。
-
-### 🧹 代码优化
-- 移除废弃的 `saveNote` 和 `saveToShortcutsFolder` 函数
-- 提取 `datePath()` 统一日期路径计算
-- `markTodosDone` 改为递归扫描所有待办文件
-
-## [2.4.1] - 2026-07-11
-
-### 🏷️ AI 智能标题命名
-文件名不再只截取前18个字。AI 会根据笔记内容自动生成不超过10个字的简洁标题（如"一元线性回归""明天下午开会""星露谷物语鱼竿"），文件自动命名为 `日期-标题.md`。
-
-### 🐛 修复：DeepSeek 同一行标题不生效
-DeepSeek 有时会把标题和分隔符写在同一行（如 `### 标题：总结内容`），导致标题无法提取。现在无论标题在独立一行还是紧跟分隔符，都能正确识别。
-
-## [2.4.0] - 2026-07-01
-
-### 🗂️ 待办事项按日期分文件
-待办事项同步改为按日期存储，文件命名为 `日期-待办-标题.md`，与备忘录保持一致的文件组织结构。
-
-### 📝 智能文件名
-备忘录文件自动包含内容标题（前18字），从 `备忘录-2026-07-01.md` 升级为 `2026-07-01-标题.md`。
-
-## [2.3.0] - 2026-07-01
-
-### 📂 备忘录按日期分文件
-不再将所有备忘录追加到同一个 `备忘录.md`，改为**每天一个独立文件** `备忘录-2026-07-01.md`。同一天的备忘追加到当天文件，方便翻找，不会出现几百行的超长文档。
-
-## [2.2.1] - 2026-06-28
-
-### 🧠 AI 更聪明了
-全新增强版系统提示词，让 DeepSeek **自动修正语音识别错误**：
-- **语义纠错**：同音字、漏字、错别字自动修正（如"1元线行"→"一元线性回归"）
-- **上下文推断**：根据前后文补全不通顺的语句
-- **去噪过滤**：自动忽略语气词、口头禅、重复废话
-- **max_tokens** 从 2000 提升至 3000
-
-即使 STT 识别不完美，AI 也能准确理解你的意思。
-
-## [2.2.0] - 2026-06-28
-
-### 🐛 Critical Bug Fix
-- **Fix: 手机端备忘录内容永远为空** — `parseAIResponse()` 中匹配 `### 备忘内容` 和 `### 总结` 的正则包含 emoji（💭📋），导致匹配永久失败。移除 emoji 后正确提取内容，手机端备忘录功能恢复正常。
-
-### ✨ New Features
-- **处理后自动删除录音** — 新设置开关（默认开启），处理完成后自动删除音频文件节省存储
-- **不再生成独立语音笔记文件** — 录音直接写入 `备忘录.md` / `待办事项.md`
-
-### 🔧 Improvements
-- 强制 Prompt 升级：检测旧版 prompt 自动替换
-- saveMemo 增加 Notices 诊断（📝 正在保存 / ✅ 已追加 / ❌ 错误）
-
-### 🎨 UI Refresh
-- 侧边栏：`mic` → `audio-lines`
-- 悬浮按钮：三圈涟漪白芯 SVG，自适应主题色
-- 设置新增「处理后删除录音文件」开关
-
-### 📖 Docs
-- README 建议录音 5 分钟以内
-
-## [2.1.1] - 2026-06-18
-
-### ✨ Memo Mode — AI 智能区分提醒/备忘，备忘录保存原话+AI总结
-
-## [2.0.5] - 2026-06-17
-
-### 🛡️ Obsidian 社区审核合规修复
+See [GitHub Releases](https://github.com/andsea007/obsidian-audio-inbox/releases) for the full history (2.0.0 → 2.7.3).
