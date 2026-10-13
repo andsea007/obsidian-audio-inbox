@@ -4,6 +4,7 @@ node_modules/
 # Build output
 main.js
 main.js.map
+dist/
 
 # OS files
 .DS_Store
@@ -18,3 +19,11 @@ Thumbs.db
 # Obsidian
 data.json
 .trash/
+
+# Local scratch / debugging helpers (not part of the plugin)
+HANDOFF.md
+__pycache__/
+analyze*.py
+debug*.py
+mine_driver.py
+capture_win.ps1

@@ -1,9 +1,9 @@
 {
   "id": "audio-inbox",
   "name": "Audio Inbox",
-  "version": "2.7.3",
+  "version": "2.8.0",
   "minAppVersion": "1.7.0",
-  "description": "Longer voice recording with configurable transcription and summary APIs.",
+  "description": "One-click voice recording → Speech-to-Text → AI summarization. Works on desktop & mobile.",
   "author": "Andsea",
   "authorUrl": "https://github.com/andsea007",
   "isDesktopOnly": false

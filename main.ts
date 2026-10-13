@@ -3,6 +3,14 @@ import { Plugin, Notice, PluginSettingTab, App, Setting, requestUrl, normalizePa
 // ==================== TYPES ====================
 
 type ContentType = "reminder" | "memo" | "mixed" | "unknown";
+type STTProvider = "compatible" | "doubao";
+type DoubaoAuthMode = "api-key" | "app-token";
+type DoubaoMode = "standard" | "flash";
+
+const DOUBAO_STT_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
+const DOUBAO_RESOURCE_ID = "volc.bigasr.auc_turbo";
+const DOUBAO_STANDARD_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel";
+const DOUBAO_MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 
 interface ParsedAI {
 	type: ContentType;
@@ -15,10 +23,16 @@ interface ParsedAI {
 interface AudioInboxSettings {
 	inboxFolder: string;
 	outputFolder: string;
+	sttProvider: STTProvider;
 	sttApiUrl: string;
 	sttApiKey: string;
 	sttModel: string;
 	sttLanguage: string;
+	doubaoAuthMode: DoubaoAuthMode;
+	doubaoMode: DoubaoMode;
+	doubaoApiKey: string;
+	doubaoAppId: string;
+	doubaoAccessToken: string;
 	aiApiUrl: string;
 	aiApiKey: string;
 	aiModel: string;
@@ -35,10 +49,16 @@ interface AudioInboxSettings {
 const DEFAULTS: AudioInboxSettings = {
 	inboxFolder: "录音",
 	outputFolder: "VoiceNotes",
+	sttProvider: "compatible",
 	sttApiUrl: "https://api.siliconflow.cn/v1/audio/transcriptions",
 	sttApiKey: "",
 	sttModel: "TeleAI/TeleSpeechASR",
 	sttLanguage: "zh",
+	doubaoAuthMode: "api-key",
+	doubaoMode: "standard",
+	doubaoApiKey: "",
+	doubaoAppId: "",
+	doubaoAccessToken: "",
 	aiApiUrl: "https://api.deepseek.com/v1/chat/completions",
 	aiApiKey: "",
 	aiModel: "deepseek-v4-flash",
@@ -421,6 +441,11 @@ export default class AudioInboxPlugin extends Plugin {
 	async loadSettings() {
 		const saved = await this.loadData() as Partial<AudioInboxSettings> | null;
 		this.settings = Object.assign({}, DEFAULTS, saved || {});
+		if (this.settings.sttProvider !== "doubao") this.settings.sttProvider = "compatible";
+		if (this.settings.doubaoAuthMode !== "app-token") this.settings.doubaoAuthMode = "api-key";
+		// Preserve the endpoint used by existing Doubao installations.
+		if (saved?.sttProvider === "doubao" && saved.doubaoMode === undefined) this.settings.doubaoMode = "flash";
+		if (this.settings.doubaoMode !== "flash") this.settings.doubaoMode = "standard";
 		if (!Array.isArray(this.settings.promptHistory)) this.settings.promptHistory = [];
 		let migrated = false;
 		// The old stored default was 5 minutes. Move that default to the requested one-hour limit.
@@ -468,10 +493,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 	async startRecordFlow() {
 		if (this.isBusy) { new Notice("⏳ 正在处理中..."); return; }
-		if (!this.settings.sttApiKey || !this.settings.aiApiKey) {
-			new Notice("⚠️ 请先分别填写语音转写与 AI 总结服务的 API Key");
-			return;
-		}
+		if (!this.validateProcessingSettings()) return;
 
 		this.isBusy = true;
 		const statusEl = this.addStatusBarItem();
@@ -555,10 +577,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 	async processInbox() {
 		if (this.isBusy) { new Notice("⏳ 正在处理中..."); return; }
-		if (!this.settings.sttApiKey || !this.settings.aiApiKey) {
-			new Notice("⚠️ 请先配置 API Key");
-			return;
-		}
+		if (!this.validateProcessingSettings()) return;
 
 		const folder = normalizePath(this.settings.inboxFolder);
 		if (!(await this.app.vault.adapter.exists(folder))) {
@@ -585,7 +604,7 @@ export default class AudioInboxPlugin extends Plugin {
 
 			try {
 				const buf = await this.app.vault.adapter.readBinary(fp);
-				const ext = fn.split(".").pop() || "webm";
+				const ext = (fn.split(".").pop() || "webm").toLowerCase();
 				let mime = "audio/webm";
 				if (ext === "m4a" || ext === "mp4") mime = "audio/mp4";
 				else if (ext === "mp3") mime = "audio/mpeg";
@@ -629,6 +648,26 @@ export default class AudioInboxPlugin extends Plugin {
 
 	// ===== API CALLS =====
 
+	private getSTTSettingsError(): string | null {
+		if (this.settings.sttProvider === "doubao") {
+			if (this.settings.doubaoAuthMode === "app-token") {
+				return this.settings.doubaoAppId.trim() && this.settings.doubaoAccessToken.trim()
+					? null : "请先在语音转文字设置中填写豆包 APP ID 和 Access Token";
+			}
+			return this.settings.doubaoApiKey.trim() ? null : "请先在语音转文字设置中填写豆包语音 API Key";
+		}
+		if (!this.settings.sttApiKey.trim()) return "请先在语音转文字设置中填写 STT API Key";
+		if (!this.settings.sttApiUrl.trim() || !this.settings.sttModel.trim()) return "请先填写 STT API 地址和模型";
+		return null;
+	}
+
+	private validateProcessingSettings(): boolean {
+		const error = this.getSTTSettingsError() || (!this.settings.aiApiKey.trim() ? "请先填写 AI 总结的 API Key" : null);
+		if (!error) return true;
+		new Notice(`⚠️ ${error}`);
+		return false;
+	}
+
 	private async ensureFolder(dir: string): Promise<void> {
 		// Split path and create each level to work around mobile recursive folder issues
 		const parts = dir.split("/").filter(p => p.length > 0);
@@ -655,15 +694,23 @@ export default class AudioInboxPlugin extends Plugin {
 	}
 
 	private async callSTT(audioBlob: Blob): Promise<string> {
-		// Upload compressed recordings as-is. Converting an hour of speech to WAV can exceed 100 MB.
+		const settingsError = this.getSTTSettingsError();
+		if (settingsError) throw new Error(settingsError);
+		const isDoubao = this.settings.sttProvider === "doubao";
+		if (isDoubao && audioBlob.size > DOUBAO_MAX_AUDIO_BYTES) {
+			throw new Error("豆包语音识别音频不能超过 100 MB，请缩短录音或压缩后重试");
+		}
+		// WAV is supported by both providers; mobile recordings may be MP4/WebM.
 		let finalBlob = audioBlob;
-		let finalMime = (audioBlob.type || "audio/webm").toLowerCase();
-		let finalExt = finalMime.includes("mp4") ? "m4a" : finalMime.includes("mpeg") ? "mp3"
-			: finalMime.includes("ogg") ? "ogg" : finalMime.includes("wav") ? "wav"
-			: finalMime.includes("flac") ? "flac" : finalMime.includes("aac") ? "aac" : "webm";
+		let finalMime = audioBlob.type || "audio/webm";
+		const sourceMime = finalMime.split(";")[0].trim().toLowerCase();
+		const isWav = /^(audio\/(x-)?wav|audio\/wave)$/.test(sourceMime);
+		const isMp3 = sourceMime === "audio/mpeg" || sourceMime === "audio/mp3";
+		let finalExt = isWav ? "wav" : isMp3 ? "mp3" : sourceMime === "audio/mp4" ? "m4a"
+			: sourceMime === "audio/ogg" ? "ogg" : sourceMime === "audio/flac" ? "flac" : sourceMime === "audio/aac" ? "aac" : "webm";
 
-		const compatibleCompressedFormat = /audio\/(webm|mp4|ogg|mpeg|flac|aac)/i.test(finalMime);
-		if (!compatibleCompressedFormat && !finalMime.includes("wav")) {
+		const compatibleCompressedFormat = /audio\/(webm|mp4|ogg|mpeg|mp3|flac|aac)/i.test(finalMime);
+		if (isDoubao ? (!isWav && !isMp3) : (!compatibleCompressedFormat && !isWav)) {
 			try {
 				finalBlob = await this.convertToWav(audioBlob);
 				finalExt = "wav";
@@ -672,6 +719,7 @@ export default class AudioInboxPlugin extends Plugin {
 				console.warn("AudioInbox: WAV conversion failed, sending original format", e);
 			}
 		}
+		if (isDoubao) return this.callDoubaoSTT(finalBlob);
 
 		// Manual multipart body (requestUrl compatible, works on mobile)
 		const boundary = "----AiInbox" + Math.random().toString(36).slice(2);
@@ -699,10 +747,10 @@ export default class AudioInboxPlugin extends Plugin {
 		let resp: RequestUrlResponse;
 		try {
 			resp = await requestUrl({
-				url: this.settings.sttApiUrl,
+				url: this.settings.sttApiUrl.trim(),
 				method: "POST",
 				headers: {
-					"Authorization": `Bearer ${this.settings.sttApiKey}`,
+					"Authorization": `Bearer ${this.settings.sttApiKey.trim()}`,
 					"Content-Type": `multipart/form-data; boundary=${boundary}`,
 				},
 				body,
@@ -770,6 +818,150 @@ export default class AudioInboxPlugin extends Plugin {
 			console.warn("AudioInbox: STT returned empty transcript", { serverSeconds: seconds, audioBytes: audioBlob.size, mimeType: audioBlob.type });
 		}
 		return result;
+	}
+
+	private async callDoubaoSTT(audioBlob: Blob): Promise<string> {
+		const standard = this.settings.doubaoMode === "standard";
+		const mime = audioBlob.type.split(";")[0].trim().toLowerCase();
+		const supported = /^(audio\/(x-)?wav|audio\/wave|audio\/mpeg|audio\/mp3)$/.test(mime)
+			|| (mime === "audio/ogg" && /codecs\s*=\s*"?opus\b/i.test(audioBlob.type));
+		if (!supported) throw new Error("无法将录音转换为豆包支持的格式，请使用 WAV、MP3 或 OGG Opus 音频重试");
+		if (audioBlob.size > DOUBAO_MAX_AUDIO_BYTES) throw new Error("转换后的豆包语音识别音频超过 100 MB，请缩短录音后重试");
+
+		// Encode with the browser API rather than Node Buffer (also works on mobile).
+		const audioData = await new Promise<string>((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(new Error("读取豆包语音识别音频失败"));
+			reader.onabort = () => reject(new Error("读取豆包语音识别音频已取消"));
+			reader.onload = () => {
+				if (typeof reader.result !== "string" || reader.result.indexOf(",") < 0) {
+					reject(new Error("豆包语音识别音频编码失败"));
+					return;
+				}
+				resolve(reader.result.slice(reader.result.indexOf(",") + 1));
+			};
+			reader.readAsDataURL(audioBlob);
+		});
+
+		const bytes = new Uint8Array(16);
+		window.crypto.getRandomValues(bytes);
+		bytes[6] = (bytes[6] & 0x0f) | 0x40;
+		bytes[8] = (bytes[8] & 0x3f) | 0x80;
+		const hex = Array.from(bytes, b => ("0" + b.toString(16)).slice(-2)).join("");
+		const requestId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+			"X-Api-Resource-Id": standard ? "volc.seedasr.auc" : DOUBAO_RESOURCE_ID,
+			"X-Api-Request-Id": requestId,
+			"X-Api-Sequence": "-1",
+		};
+		if (this.settings.doubaoAuthMode === "app-token") {
+			headers["X-Api-App-Key"] = this.settings.doubaoAppId.trim();
+			headers["X-Api-Access-Key"] = this.settings.doubaoAccessToken.trim();
+		} else {
+			headers["X-Api-Key"] = this.settings.doubaoApiKey.trim();
+		}
+
+		let resp: RequestUrlResponse;
+		try {
+			resp = await requestUrl({
+				url: standard ? `${DOUBAO_STANDARD_URL}/submit` : DOUBAO_STT_URL,
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					user: { uid: "audio-inbox" },
+					audio: { data: audioData, format: mime === "audio/ogg" ? "ogg" : /mpeg|mp3/.test(mime) ? "mp3" : "wav" },
+					request: { model_name: "bigmodel", enable_itn: true, enable_punc: true },
+				}),
+				throw: false,
+			});
+		} catch {
+			throw new Error("豆包语音识别请求失败，请检查网络连接后重试");
+		}
+
+		let code = this.checkDoubaoResponse(resp, standard);
+		if (standard && code !== "20000003") {
+			// Submission has no transcript. Poll the same task without re-uploading audio.
+			const deadline = Date.now() + 5 * 60 * 1000;
+			let completed = false;
+			for (let attempt = 0; attempt < 150; attempt++) {
+				await new Promise<void>(resolve => window.setTimeout(resolve, 2000));
+				if (Date.now() >= deadline) break;
+				try {
+					resp = await requestUrl({ url: `${DOUBAO_STANDARD_URL}/query`, method: "POST", headers, body: "{}", throw: false });
+				} catch {
+					throw new Error("豆包语音识别结果查询失败，请检查网络连接后重试；原音频已保留");
+				}
+				code = this.checkDoubaoResponse(resp, true);
+				if (code !== "20000001" && code !== "20000002") { completed = true; break; }
+			}
+			if (!completed) {
+				throw new Error(`豆包标准版识别等待超时，原音频已保留，请稍后重试；任务 ID：${requestId}`);
+			}
+		}
+		if (code === "20000003") return "";
+		let data: { result?: { text?: unknown } } | null;
+		try {
+			data = JSON.parse(resp.text) as { result?: { text?: unknown } } | null;
+		} catch {
+			throw new Error("豆包语音识别返回了无效结果，请稍后重试");
+		}
+		if (!data || !data.result || typeof data.result.text !== "string") {
+			throw new Error("豆包语音识别结果缺少文字，请稍后重试");
+		}
+		return data.result.text.trim();
+	}
+
+	private checkDoubaoResponse(resp: RequestUrlResponse, standard: boolean): string {
+		const getHeader = (name: string): string => {
+			const key = Object.keys(resp.headers).find(k => k.toLowerCase() === name);
+			return key ? resp.headers[key] : "";
+		};
+		const code = getHeader("x-api-status-code");
+		const errorDetails = (): string => {
+			let message = getHeader("x-api-message");
+			if (!message) {
+				try {
+					const body = JSON.parse(resp.text) as {
+						message?: unknown; msg?: unknown; error?: string | { message?: unknown };
+					} | null;
+					const candidate = body?.message || body?.msg
+						|| (typeof body?.error === "string" ? body.error : body?.error?.message);
+					if (typeof candidate === "string") message = candidate;
+				} catch {
+					// Some gateways return a plain-text error instead of JSON.
+					if (!/^\s*</.test(resp.text)) message = resp.text;
+				}
+			}
+			// Never expose a credential if a server echoes it in an error message.
+			for (const value of [this.settings.doubaoApiKey, this.settings.doubaoAppId, this.settings.doubaoAccessToken]) {
+				const credential = value.trim();
+				if (credential) message = message.split(credential).join("[已隐藏凭证]");
+			}
+			message = message.replace(/\s+/g, " ").slice(0, 240);
+			const logId = getHeader("x-tt-logid").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
+			return `HTTP ${resp.status}${code ? ` / ${code}` : ""}${message ? `：${message}` : ""}${logId ? `；日志 ID：${logId}` : ""}`;
+		};
+
+		if (resp.status === 401) {
+			throw new Error(`豆包语音识别鉴权失败，请核对语音服务凭证和鉴权方式。\n${errorDetails()}`);
+		}
+		if (resp.status === 403) {
+			throw new Error(`豆包语音识别无权限或凭证无效，请检查同一项目/应用是否开通${standard ? "录音文件识别标准版 2.0（volc.seedasr.auc）" : "录音文件极速版（volc.bigasr.auc_turbo）"}。\n${errorDetails()}`);
+		}
+		if (resp.status === 402) throw new Error(`豆包语音识别余额不足，请前往火山引擎控制台检查余额。\n${errorDetails()}`);
+		if (resp.status === 429) throw new Error(`豆包语音识别请求过于频繁，请稍后重试。\n${errorDetails()}`);
+		if (resp.status !== 200) throw new Error(`豆包语音识别请求失败。\n${errorDetails()}`);
+
+		if (code === "20000003" || (standard && (code === "20000001" || code === "20000002"))) return code;
+		if (code !== "20000000") {
+			if (code === "45000151") throw new Error("豆包语音识别不支持当前音频格式，请使用 WAV、MP3 或 OGG Opus");
+			if (code === "45000002") throw new Error("豆包语音识别收到空音频，请重新录音");
+			if (code === "55000031") throw new Error("豆包语音识别服务繁忙，请稍后重试");
+			throw new Error(`豆包语音识别失败${code ? "" : "（缺少服务状态码）"}。\n${errorDetails()}`);
+		}
+
+		return code;
 	}
 
 	private async convertToWav(blob: Blob): Promise<Blob> {
@@ -1153,7 +1345,7 @@ class AudioInboxSettingTab extends PluginSettingTab {
 
 		containerEl.createDiv({
 			cls: "audio-inbox-guide",
-			text: "⏱️ 默认录音上限 60 分钟。录音保留 WebM/Opus 压缩格式，避免长录音转 WAV 后超过接口文件限制。服务商的时长、文件大小和格式限制各不相同；录音时请保持 Obsidian 在前台，手机锁屏可能中断。",
+			text: "⏱️ 默认录音上限 60 分钟。兼容接口保留压缩录音；豆包会将 WebM/MP4 转为 WAV，并检查转换后 100 MB 上限。服务商的时长、文件大小和格式限制各不相同；录音时请保持 Obsidian 在前台，手机锁屏可能中断。",
 		});
 
 		new Setting(containerEl)
@@ -1192,18 +1384,74 @@ class AudioInboxSettingTab extends PluginSettingTab {
 			}));
 
 		// STT
-		new Setting(containerEl).setName("语音转文字 API").setDesc("填写兼容 multipart /audio/transcriptions 的地址、模型和 API Key；服务商可自行选择，并需支持当前音频格式。").setHeading();
+		new Setting(containerEl).setName("语音转文字 (STT)").setHeading();
+		new Setting(containerEl).setName("语音识别服务")
+			.setDesc("各服务的凭证分别保存，切换后无需重新填写。")
+			.addDropdown(dd => dd
+				.addOption("compatible", "兼容接口（硅基流动 / Whisper 等）")
+				.addOption("doubao", "豆包语音")
+				.setValue(this.plugin.settings.sttProvider)
+				.onChange(async v => {
+					this.plugin.settings.sttProvider = v === "doubao" ? "doubao" : "compatible";
+					await this.plugin.saveSettings();
+					this.display();
+				}));
 
-		new Setting(containerEl).setName("语音识别 API Key").addText(t => {
-			t.setValue(this.plugin.settings.sttApiKey); t.inputEl.type = "password";
-			t.onChange(async v => { this.plugin.settings.sttApiKey = v; await this.plugin.saveSettings(); });
-		});
-		new Setting(containerEl).setName("语音识别 API 地址").addText(t =>
-			t.setValue(this.plugin.settings.sttApiUrl).onChange(async v => { this.plugin.settings.sttApiUrl = v; await this.plugin.saveSettings(); }));
-		new Setting(containerEl).setName("语音识别模型").addText(t =>
-			t.setValue(this.plugin.settings.sttModel).onChange(async v => { this.plugin.settings.sttModel = v; await this.plugin.saveSettings(); }));
-		new Setting(containerEl).setName("语言 (zh/en)").addText(t =>
-			t.setValue(this.plugin.settings.sttLanguage).onChange(async v => { this.plugin.settings.sttLanguage = v; await this.plugin.saveSettings(); }));
+		if (this.plugin.settings.sttProvider === "doubao") {
+			new Setting(containerEl).setName("豆包识别模式")
+				.setDesc("控制台开通「豆包录音文件识别模型 2.0」时选择标准版 2.0。")
+				.addDropdown(dd => dd
+					.addOption("standard", "标准版 2.0（推荐）")
+					.addOption("flash", "极速版（需单独开通）")
+					.setValue(this.plugin.settings.doubaoMode)
+					.onChange(async v => {
+						this.plugin.settings.doubaoMode = v === "flash" ? "flash" : "standard";
+						await this.plugin.saveSettings();
+					}));
+			containerEl.createDiv({
+				cls: "audio-inbox-guide",
+				text: "填写已开通所选语音识别服务的同一项目（旧版为同一应用）的凭证。标准版 2.0 使用 volc.seedasr.auc，提交后等待识别结果；极速版使用 volc.bigasr.auc_turbo。需有有效额度或余额；豆包聊天会员、聊天模型 Key、流式识别及语音合成权限不能替代录音文件识别权限。只粘贴凭证值，不要粘贴 curl 示例。录音发送至火山引擎，转写文字再发送至所配置的 AI 总结服务。标准版最多等待约 5 分钟，超时保留原录音；重试会提交新任务，可能再次计费。",
+			});
+			new Setting(containerEl).setName("豆包语音鉴权方式").addDropdown(dd => dd
+				.addOption("api-key", "API Key（新版控制台）")
+				.addOption("app-token", "APP ID + Access Token（旧版控制台）")
+				.setValue(this.plugin.settings.doubaoAuthMode)
+				.onChange(async v => {
+					this.plugin.settings.doubaoAuthMode = v === "app-token" ? "app-token" : "api-key";
+					await this.plugin.saveSettings();
+					this.display();
+				}));
+			if (this.plugin.settings.doubaoAuthMode === "app-token") {
+				new Setting(containerEl).setName("豆包语音 APP ID").addText(t =>
+					t.setValue(this.plugin.settings.doubaoAppId).onChange(async v => {
+						this.plugin.settings.doubaoAppId = v; await this.plugin.saveSettings();
+					}));
+				new Setting(containerEl).setName("豆包语音 Access Token").addText(t => {
+					t.setValue(this.plugin.settings.doubaoAccessToken); t.inputEl.type = "password";
+					t.onChange(async v => { this.plugin.settings.doubaoAccessToken = v; await this.plugin.saveSettings(); });
+				});
+			} else {
+				new Setting(containerEl).setName("豆包语音 API Key").addText(t => {
+					t.setValue(this.plugin.settings.doubaoApiKey); t.inputEl.type = "password";
+					t.onChange(async v => { this.plugin.settings.doubaoApiKey = v; await this.plugin.saveSettings(); });
+				});
+			}
+		} else {
+			containerEl.createDiv({
+				cls: "audio-inbox-guide",
+				text: "填写支持 multipart 音频上传、Bearer Key 鉴权和 text 文字响应的 /audio/transcriptions 完整地址、模型及 API Key。默认使用硅基流动 SenseVoiceSmall，服务商需支持当前音频格式。",
+			});
+			new Setting(containerEl).setName("STT API Key").addText(t => {
+				t.setValue(this.plugin.settings.sttApiKey); t.inputEl.type = "password";
+				t.onChange(async v => { this.plugin.settings.sttApiKey = v; await this.plugin.saveSettings(); });
+			});
+			new Setting(containerEl).setName("STT API 地址").addText(t =>
+				t.setValue(this.plugin.settings.sttApiUrl).onChange(async v => { this.plugin.settings.sttApiUrl = v; await this.plugin.saveSettings(); }));
+			new Setting(containerEl).setName("STT 模型").addText(t =>
+				t.setValue(this.plugin.settings.sttModel).onChange(async v => { this.plugin.settings.sttModel = v; await this.plugin.saveSettings(); }));
+			new Setting(containerEl).setName("语言 (zh/en)").addText(t =>
+				t.setValue(this.plugin.settings.sttLanguage).onChange(async v => { this.plugin.settings.sttLanguage = v; await this.plugin.saveSettings(); }));
+		}
 
 		// AI
 		new Setting(containerEl).setName("AI 总结 API").setDesc("填写兼容 /chat/completions 请求格式的完整地址、模型和 API Key；不要求使用 OpenAI，服务商可自行选择。").setHeading();
